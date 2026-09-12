@@ -4,14 +4,16 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { context, acquire, release, saveCheckpoint, recovery, queueCandidates, issueStamp } from '../scripts/executor.mjs';
+import { context, acquire, release, saveCheckpoint, recovery, queueCandidates, issueStamp, localQueue, claim, receipt } from '../scripts/executor.mjs';
 
 function fixture(t) {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'mfv-w0-test-'));
   const root = path.join(base, 'repo'); fs.mkdirSync(root);
   const git = (...args) => execFileSync('git', args, { cwd: root, stdio: 'pipe' });
   git('init'); git('config', 'user.name', 'Fixture'); git('config', 'user.email', 'fixture@example.invalid');
+  fs.writeFileSync(path.join(root, '.gitignore'), 'artifacts/\n');
   fs.writeFileSync(path.join(root, 'file.txt'), 'baseline'); git('add', '.'); git('commit', '-m', 'fixture');
+  git('checkout', '-b', 'feat/chart-mvp');
   t.after(() => fs.rmSync(base, { recursive: true, force: true }));
   return { c: context(root), git, base };
 }
@@ -49,7 +51,7 @@ test('dirty recovery binds issue, worktree, HEAD, index and untracked bytes', t 
   assert.equal(recovery(c, 9).status, 'CHECKPOINT_DIVERGED');
 });
 test('pause marker prevents acquisition; checkpoints require ownership', t => {
-  const { c } = fixture(t); fs.mkdirSync(c.base); fs.writeFileSync(path.join(c.base, 'PAUSED'), 'user pause');
+  const { c } = fixture(t); fs.mkdirSync(c.base, { recursive: true }); fs.writeFileSync(path.join(c.base, 'PAUSED'), 'user pause');
   assert.equal(acquire(c, owner()).status, 'USER_PAUSED');
   assert.throws(() => saveCheckpoint(c, 'not-owner', { issue_number: 9, phase: 'x', next_step: 'x' }));
 });
@@ -76,4 +78,47 @@ test('queue sorts priority then creation; specification hash changes on edit', (
   assert.deepEqual(queueCandidates([issue(12), issue(11), issue(13, 'P0')]).map(x => x.issue_number), [13, 11, 12]);
   assert.notEqual(issueStamp(issue(9)).body_sha256, issueStamp({ ...issue(9), body: issue(9).body + 'edit' }).body_sha256);
   assert.throws(() => issueStamp({ ...issue(9), body: 'missing version' }), /TASK_VERSION_MISSING/);
+});
+
+function inbox(c, tasks = [issue(9)]) {
+  fs.mkdirSync(c.base, { recursive: true });
+  const data = { schema: 'MFV:INBOX:v1', repo: 'He1met/market-forecast-viewer', sync_id: 'fixture',
+    synced_at: new Date(Date.now() - 1000).toISOString(), expires_at: new Date(Date.now() + 3600000).toISOString(),
+    issues: tasks, reviews: [], releases: tasks.map(task => ({ ...issueStamp(task), approved: true,
+      dependencies_satisfied: true, branch: 'feat/chart-mvp', scope: 'chart-mvp-comprehensibility',
+      review_id: 'fixture-only', source_comment_url: 'https://github.com/example/fixture', gate: 'configuration_ready' })) };
+  const write = () => fs.writeFileSync(path.join(c.base, 'inbox.json'), JSON.stringify(data));
+  write(); return { data, write };
+}
+test('local inbox fails closed for missing sync, expired sync, blocked tasks and altered released bytes', t => {
+  const { c } = fixture(t);
+  assert.equal(localQueue(c).status, 'WAITING_LOCAL_SYNC');
+  const { data, write } = inbox(c);
+  assert.equal(localQueue(c).status, 'LOCAL_READY');
+  data.issues[0].body += 'edited'; write(); assert.equal(localQueue(c).status, 'EMPTY_QUEUE');
+  data.issues[0] = issue(9, 'P1', ['queue:codex', 'status:blocked']); write();
+  assert.equal(localQueue(c).status, 'EMPTY_QUEUE');
+  data.expires_at = '2000-01-01T00:00:00Z'; write(); assert.equal(localQueue(c).status, 'INVALID_OR_EXPIRED_INBOX');
+});
+test('local claim binds one task, resumes exact checkpoint and waits at handoff with durable receipt', t => {
+  const { c } = fixture(t); inbox(c, [issue(9), issue(10)]);
+  acquire(c, { ...owner(), issue_number: 0 });
+  assert.equal(claim(c, 'first').status, 'CLAIMED');
+  assert.throws(() => claim(c, 'first'), /ONE_ISSUE_PER_RUN/);
+  fs.writeFileSync(path.join(c.root, 'file.txt'), 'approved fixture edit');
+  const saved = receipt(c, 'first', { issue_number: 9, phase: 'implementing', tests: [], next_step: 'test' });
+  assert.equal(JSON.parse(fs.readFileSync(saved.file)).github_write, false);
+  assert.equal(saved.receipt.task_version, 1);
+  release(c, 'first'); acquire(c, { ...owner('next'), issue_number: 0 });
+  assert.equal(claim(c, 'next').status, 'RESUMED');
+  receipt(c, 'next', { issue_number: 9, phase: 'awaiting_handoff', tests: [{ command: 'fixture assertion', result: 'pass' }], next_step: 'interactive review/commit' });
+  release(c, 'next'); acquire(c, { ...owner('later'), issue_number: 0 });
+  assert.equal(claim(c, 'later').status, 'WAITING_INTERACTIVE_HANDOFF');
+});
+test('legacy lock blocks migration; foreign dirty workspace blocks a locally released task', t => {
+  const { c } = fixture(t); fs.mkdirSync(c.legacyLock, { recursive: true });
+  assert.equal(acquire(c, owner()).status, 'LEGACY_LOCK_BUSY'); fs.rmdirSync(c.legacyLock);
+  inbox(c); acquire(c, { ...owner(), issue_number: 0 });
+  fs.writeFileSync(path.join(c.root, 'file.txt'), 'unknown writer');
+  assert.equal(claim(c, 'first').status, 'FOREIGN_DIRTY');
 });

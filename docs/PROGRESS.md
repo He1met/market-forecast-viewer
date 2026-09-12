@@ -4,6 +4,60 @@
 
 下方C0/建仓记录属于历史，当前结果见各阶段交接段。
 
+## 2026-09-13 完全访问授权与executor_setup_archive（当前）
+
+用户最新明确要求“直接给定时任务完全访问权限，然后继续推进”，替代此前禁止full access及强制交互归档安排；#9仍等待ChatGPT放行，不实施。六个未提交文件均属#8；没有产品功能修改或额外文件进入归档范围。
+
+项目.codex/config.toml改为danger-full-access/never，官方app-server config/read按项目cwd解析回读一致；不改全局配置，项目新交互会话同样继承项目默认权限。官方chart-mvp原位更新，ACTIVE、cron/local、每小时一次；正文允许同一锁内测试后commit/push/PR报告，保留本地同步ready、版本/范围/依赖校验、每轮一项和检查点恢复。AGENTS对应替换旧限制并明确归档intent/结果、报告去重与审查回流。完整旧方案在下方保留为历史。
+
+重新执行node --test tests/executor.test.mjs：10/10 PASS。源码/测试未改变，新增变更仅授权配置和职责文档。配置解析PASS；当前交互归档不再人为嵌套限制.git的独立sandbox命令。git diff --check与显式六文件范围检查在提交前执行；归档提交SHA/推送回读/PR报告链接以本轮executor_setup_archive报告与LOCAL_ONLY artifacts/executor/handoff.json为准，避免文档自引用提交SHA。忽略的本地数据/receipt/checkpoint/inbox不提交。
+
+自然定时运行的实际权限及完整试点闭环尚未验证；配置ACTIVE不等于#9已放行。仍需ChatGPT配置审查并显式同步configuration_ready/ready材料，才能自然领取#9；不合并、不写main、不改变可见性、不新增产品能力。后续正常阶段由定时器自动归档，异常才需要交互接手。
+
+## 2026-09-13 ACT-013～015：本地执行器改造（当前）
+
+用户接受PR #7评论5646966124的混合方案；本节及AGENTS新W0替代下方旧权限追逐/远端执行方案。仅#8辅助逻辑、规则与项目配置调整，#9仍OPEN/queue:codex/status:blocked，未实施；没有改产品源码、数据、DATA_CONTRACT或原始开发包。
+
+实际官方任务chart-mvp原位update并读取automation.toml核验：名称market-forecast-viewer 任务执行，cron/local，项目36387a56-c942-4083-9bca-3057dcb3b6b8，每小时一次，ACTIVE。模型沿用gpt-6-astra/medium，没有新任务或其他模型。新正文仅本地领取/实施/测试/receipt；禁止Git/GitHub写入和联网，禁止自行修改权限或inbox放行。自然回合若实际权限不是标准沙箱则停止实施。
+
+项目配置为workspace-write/on-request/approvals_reviewer=user/network_access=false；移除上轮auto_review与GitHub代理域名配置。当前父会话既有权限不会热切换，故本轮本地命令均用官方codex sandbox -P :workspace -C PROJECT执行受限验证；未使用full-access覆盖、额外可写路径或网络放宽。可审批提交仍是后续交互交接步骤，本轮没有git add/commit/push。
+
+锁/检查点/收据移到主checkout的artifacts/executor，受gitignore排除，linked worktree共享同一原子锁；旧.git/mfv-executor证据保留，只读检查旧锁是否占用。旧锁已确认不存在，其他本项目任务观察为空闲。设置持有自己的manual_setup锁；第二run真实返回LOCK_BUSY；本地inbox保存#9完整blocked快照、空releases，queue真实返回EMPTY_QUEUE。未伪造ready或configuration_ready。
+
+`codex sandbox -P :workspace -C PROJECT -- node --test tests/executor.test.mjs`通过10/10：覆盖排他/残留锁/归属与字节恢复/暂停、队列过滤与版本、过期/正文改变/blocked拒绝、fixture本地领取→编辑→receipt→跨run恢复→等待交接、旧锁迁移拒绝与外来脏目录拒绝。fixture使用临时测试仓库，不是#9真实实施。真实工作区另保存并回读bootstrap_handoff receipt/checkpoint；LOCAL_ONLY证据见artifacts/executor和artifacts/w0/local-worker-report.json。图表测试未重跑，因为产品代码未改。
+
+本地同步是显式交互交接，不存在自动Connector→Mac通道。ChatGPT放行前需同步最新Issue/完整release/reviews并设有效期；#9旧正文仍含已被替代的远端执行步骤，应由ChatGPT Connector协调后再放行。定时器不会自行更新GitHub。完成本地阶段后等待可审批会话核对receipt与diff再一次性提交推送，Connector随后报告/审查，本地同步审查后自然轮去重确认。
+
+manual_local_worker_validation=PASS；scheduled_trigger_observed=false；natural_runtime_permissions_verified=false；full_pilot_loop_verified=false。当前设置变更尚未提交，基线HEAD仍0a6456d75aacd5132d5b12836f8dba4fab4160b1。配置启用不等于#9放行或自然闭环通过。
+
+唯一下一步：ChatGPT审查本次配置与本地收据，再由可审批交互会话完成设置提交交接并同步明确的试点放行；#9在此之前保持blocked。下方记录全部为历史。
+
+## 2026-09-12 ACT-010～012 配置与复验
+
+本轮按用户明确授权及监督comment5646901090继续原#8，只做配置/验证，#9保持blocked。项目配置保持workspace-write/on-request，增加approvals_reviewer=auto_review，开启workspace网络和官方network_proxy，精确allowlist仅github.com、api.github.com，关闭upstream proxy和宽泛本地绑定。官方config/read确认有效值及全部project来源；未改全局配置、内部数据库、定时器正文或PAUSED状态。官方config/batchWrite曾因仅支持user config拒绝project目标，因此采用获授权的项目文件编辑，没有改写user config。
+
+真实复验仍阻塞：显式workspaceWrite的官方command/exec创建common-dir锁返回EPERM，未产生自动审批请求；允许的GitHub和未允许的example.com均返回代理403 blocked-by-allowlist。向临时官方进程传入相同精确域名配置后仍相同，requirements回读null；运行时策略来源未确定。没有切full access、清除代理、放宽allowlist或伪造审查批准。当前任务工具审批入口仍不支持升级请求，配置文件解析不是已开启回合的权限热切换。
+
+ACT-010配置确认/审批实际未验证；ACT-011配置确认/网络正例失败；ACT-012在取锁处失败，后续checkpoint/Git写入/push/受限报告/空队列均未继续。旧7/7仅历史证据，本轮未改代码。官方GitHub连接器只回写本设置阻塞，不冒充受限shell联网成功。文件仍本地未提交，HEAD=0a6456d75aacd5132d5b12836f8dba4fab4160b1；setup_ready=false、scheduled_trigger_observed=false，任务PAUSED。没有取得新锁；本地恢复依据为artifacts/w0/auto-review-handoff.json以及本段diff，不能用旧common-dir检查点自动覆盖它。
+
+LOCAL_ONLY收据：artifacts/w0/auto-review-effective.json、explicit-workspace-proxy.json、scoped-runtime-network.json、auto-review-acquire.json、auto-review-report.md。公开报告report_id=MFV-W0-AUTO-REVIEW-20260912-03，实际comment_id/回读见本地报告收据。数据与辅助代码哈希和上轮一致。
+
+唯一下一步：官方桌面端核实本任务实际生效的标准项目权限、自动审批入口及GitHub网络allowlist，随后在可提交审批请求的原任务回合继续#8完整链；#9不放行。本轮不重构锁或用无沙箱进程替代受限执行。
+
+## 2026-09-12 W0权限复核（本轮仅配置验证）
+
+用户明确授权调整为标准项目沙箱与正常审批，仅验证#8，#9保持blocked。新建项目级`.codex/config.toml`：sandbox_mode=workspace-write、approval_policy=on-request、network_access=false；未改全局配置。官方app-server config/read按本项目cwd解析，确认三个字段来源均为项目层，覆盖既有用户层danger-full-access/never。本项目既有trust_level=trusted，未修改信任设置。配置落盘与官方解析已通过；当前已开启的桌面会话权限没有被文件修改热切换，不能称定时任务实际运行权限已验证。
+
+已读监督回执5646833002 / MFV-SUP-W0-SETUP-20260912-06，确认ACT-008/009：never只是无人值守不弹审批，不单独等于关闭沙箱。当前项目交互默认on-request；官方定时器仍可能选never，需要实际任务权限证据，不能由项目文件推断审批会弹出。
+
+实际官方沙箱验证：本机codex-cli 0.154.0-alpha.6.2使用`codex sandbox -P :workspace -C PROJECT -- COMMAND`，内置workspace配置、不追加可写路径/网络。项目内临时文件写入/读回/删除PASS；7/7 executor专项测试PASS；受保护Git目录写探针返回EPERM；现有checkpoint命令exit1/EPERM；git add .codex/config.toml返回exit128/index.lock禁止；gh读取exit1/网络不可达；git push --dry-run exit128/解析网络失败。没有执行实际受限提交、推送或gh报告写入，因为前置已拒绝，未放宽权限重试。GitHub报告改用现有独立连接器，不能算受限shell网络演练成功。
+
+保留初次探测：未选择profile的sandbox命令连项目写入也拒绝，不把该结果归为目标workspace-write；-C缺-P被参数校验拒绝，普通名称workspace-write未定义，查实际协议/官方文档后选择内置:workspace并成功验证。以上属于探测纠正，不是扩大权限。
+
+当前configuration_file_verified=true，restricted_execution_chain_verified=false，setup_ready=false，scheduled_trigger_observed=false。chart-mvp仍PAUSED/Local/每小时；#8/#9仍OPEN/blocked，未领取或实施#9。仅配置与本进度文档尚未提交，故HEAD仍0a6456d75aacd5132d5b12836f8dba4fab4160b1；不在被拒后使用更宽权限重跑Git暂存/提交/推送。LOCAL_ONLY收据artifacts/w0/permissions-effective.json、workspace-restricted-smoke.json及本轮报告。没有修改辅助/业务代码或数据、自动化正文/状态、原始开发包；未重跑图表测试。
+
+唯一下一步：ChatGPT审查实际边界与必要动作清单，再确定官方支持的最小许可方式。所需动作仅限本项目锁/检查点及指定功能分支Git元数据、指定仓库的必要GitHub读取/推送/报告；不得宽泛放行任意node/git/gh或恢复full access。若要修改锁位置，仍在原#8核实跨会话/common-dir关联和恢复语义后处理，本轮不实施。权限与受限执行链证据齐备之前不放行#9。
+
 ## 2026-09-12 W0 / Issue #8 设置检查点
 
 当前结论：`SETUP_BLOCKED`（权限核验未满足），`setup_ready=false`。官方任务已经原位从 heartbeat 改为项目绑定的 Local cron 执行任务，保持 PAUSED；没有重复任务。#9 保持 `queue:codex + status:blocked`，等待配置确认，本会话未实施任何试点 UI。#8 不加入 queue:codex，保持 OPEN；配置与完整自然闭环均未获 ChatGPT 审查通过。
