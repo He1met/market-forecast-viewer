@@ -60,6 +60,10 @@
 
 当前唯一已核实业务试点#9的task_version=1、完整正文SHA及正式放行review5187124672（MFV-SUP-W0-CONFIG-READY-20260913-01、configuration_ready）的作者ID/正文SHA/设置commit绑定在executor的pilotApproval。来源是已实际读取的仓库所有者He1met（ID65616876）经ChatGPT Connector提交的PR review，不是看到marker或ready就推断批准。该review明确放行当前#9；同步记录真实updated_at/body_sha256、源URL、scope及依赖。检查ready/open/唯一状态、原批准正文版本、GitHub blocked_by=0、PR功能分支/仓库，回读Issue/review/PR拒绝中途变化。未知任务或变更正文不继承此放行。
 
+pilotApproval只是当前已核验#9 v1的快速路径，不要求未来每次合法新任务/审查都人工改代码哈希。sync返回REQUIRES_EVIDENCE_REVIEW时，持锁的官方Codex须直接阅读本轮inbox中完整真实Issue及raw reviews/comments，核对仓库所有者来源、实际放行语义、版本/范围/前置、关联提交/报告及更新的否决/撤回。若已有明确批准且仍在用户批准范围，可在同一run中用Node把证据核验结果构造成releases项：issue_number/task_version/updated_at/body_sha256、approved/dependencies_satisfied、branch/scope/gate、review_id/source_comment_url，另存源对象id/正文SHA和逐项依据至LOCAL_ONLY sync-evidence.json。随后再次GET对应Issue及源评论/review确认未变，使用临时文件+rename原子替换本轮inbox（保持sync_run_id，仅替换已核实releases），再运行queue/claim。此为同步既有批准，不是Codex自行放行；不得将自己的报告、普通ready标签或模糊建议当批准。证据确实缺失/冲突才停止报告；正常新审查不新增人工审批环节、不修改pilotApproval。
+
+raw reviews契约为GitHub原始评论或正式review对象：body、id、html_url、user、updated_at或submitted_at、正式review的state/commit_id。review_id/action_id/Issue/报告/SHA/决定须由Codex从body核实提取后写入本地处理账本，不能假设原对象有这些顶层字段。按来源URL+body SHA及已核实review_id/action_id去重；同URL正文改动必须重新核实，不能按id忽略编辑。
+
 当前#9远端已ready（2026-09-12T16:25:44Z），本设置会话只同步并验证资格，不手工claim/实施。新的同范围监督决定优先于旧门禁；脚本发现更新的监督决定会将资格留给证据核验，不能静默复用旧批准。无需让ChatGPT重复发布已经存在的配置放行。
 
 inbox仍采用MFV:INBOX:v1（issues完整正文，releases绑定版本/哈希/依赖，reviews按来源URL去重保留完整评论与正式审查），另记sync_status/sync_run_id/remote_head_sha。审查每轮自动刷新；执行者按review_id/action_id+Issue+报告+SHA去重记录处理结果，RECEIVED不等于FIXED，不执行越权内容。联网失败使用稳定REMOTE_SYNC_FAILED记录证据/通知去重，不每小时刷同一错误；没有新证据不强行领取。机械门禁只是最低条件，Codex仍须阅读全文核对授权、范围及依赖。

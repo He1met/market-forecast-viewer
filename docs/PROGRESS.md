@@ -14,6 +14,8 @@ executor增加持锁sync命令：仅GET、完整分页、评论与正式review�
 
 node --test tests/executor.test.mjs：13/13 PASS，新增来源伪造/正文变化、失败缓存失效、回读竞态、本轮同步绑定、依赖不满足/新监督优先及去重。真实node scripts/executor.mjs sync本设置run返回SYNCED/PILOT_READY，候选仅#9，22项评论/review去重结果；未调用claim #9、未改产品代码或数据。本次是手动只读同步验证，不是自然完整闭环。
 
+pilotApproval仅为本次#9已审查基线快速路径；未来合法新任务/新review由持锁官方Codex按AGENTS证据核验路径，回读实际Issue/源review后原子同步本轮releases，无需人工改代码哈希或额外审批。reviews明确保留GitHub原始对象，结构化review_id/action_id由执行者核验body后写处理账本；编辑按正文SHA重新核实。
+
 官方chart-mvp通过automation_update原位更新并回读，ACTIVE/每小时/Local/项目/模型/完全访问never及通知意图保留；每轮持锁后先sync，不再要求人工刷新。设置提交/remote SHA/PR报告见本轮在线同步归档收据。唯一下一步：等待自然定时轮重新联网核验并领取#9，提交测试报告供ChatGPT审查。下方为历史记录。
 
 ## 2026-09-13 完全访问授权与executor_setup_archive（当前）
