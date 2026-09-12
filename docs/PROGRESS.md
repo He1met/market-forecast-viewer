@@ -1,6 +1,6 @@
 # 开发进度与证据
 
-当前状态：M0/C1–C5与#9工程通过，用户五项视觉验收已通过，#9审查已自然轮确认。用户2026-09-13进一步批准现有定时任务执行本项目所有开发任务，不限制M1或Issue编号；当前进行通用执行范围优化与一次手动领取验证。feat/chart-mvp、PR #7，原始数据/截图留本地。
+当前状态：M0/C1–C5与#9工程通过，用户五项视觉验收已通过，#9审查已自然轮确认。用户2026-09-13进一步批准现有定时任务执行本项目所有开发任务，不限制M1或Issue编号；通用执行范围优化完成，手动领取验证已正确绑定#11，待自然轮恢复实施。feat/chart-mvp、PR #7，原始数据/截图留本地。
 
 下方C0/建仓记录属于历史，当前结果见各阶段交接段。
 
@@ -15,6 +15,12 @@ executor不再硬编码pilotApproval、#9正文SHA或chart-mvp-comprehensibility
 官方automation_update已原位更新chart-mvp，ACTIVE/每小时/Local/同项目、gpt-6-astra/ultra保持，实际权限danger-full-access/never未改。新正文覆盖所有项目开发任务，保留任务技术条件、单写入/恢复、自动归档与通知去重。官方回读与本地automation.toml一致，配置正文SHA及前后记录在artifacts/queue-opt；不新建定时器，不启用两小时业务任务。
 
 本轮持manual_setup锁，原#9 acknowledged及handoff已备份，起点11bae1adb87c5729fd41792151737bccd400cd16、clean。真实通用sync返回33项来源，唯一待核验候选#11 v1/P0，#12–#14仍blocked。先完成本维护提交及HEAD交接，再以manual触发执行同一sync→verify-release→queue→claim流程；实际领取结果后续追加，不能把手动验证说成自然调度。LOCAL_ONLY证据在artifacts/queue-opt。
+
+### 通用队列真实手动领取结果
+
+通用实现提交2674eeb6f5c7ea54d0b83ff916846ab8153d1c00已普通推送并ls-remote核对，原#9已确认检查点完成显式维护HEAD交接。另起本次用户要求的manual运行MFV-QUEUE-CLAIM-20260913-01，真实执行acquire→sync→官方Codex全文核验→verify-release→queue→claim。结果VERIFIED_READY/LOCAL_READY，唯一候选#11 v1/P0，claim返回CLAIMED，正文SHA=2dfb8c2c75a01bf779e6c96e8697ff60b842c6111645ab02ac7b7bf02b319eae，claim_base_sha=2674eeb6f5c7ea54d0b83ff916846ab8153d1c00，recover=CHECKPOINT_MATCH。旧#9已记入acknowledged持久账本；#12–#14仍blocked，未多领。
+
+本次trigger=manual，是实际领取验证，不是自然调度验收，也未开始#11预测功能/行情下载。LOCAL_ONLY原始领取输出和manual-validation-receipt.json保存于artifacts/queue-opt；后续自然轮重新sync/核验后恢复同一#11并实施，不把本轮仅验证领取要求永久继承。此处只是验证结果文档补记，执行器/测试代码与17/17测试的2674eeb文件SHA一致；文档提交导致的HEAD变动另有维护handoff及明确检查点交接，不冒充#11实施提交。唯一下一步：自然开发轮恢复#11。
 
 ## 2026-09-13 #9 自然定时试点：工程实现与验证
 
