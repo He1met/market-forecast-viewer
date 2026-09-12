@@ -87,4 +87,12 @@ C1–C5 均带 `status:awaiting-approval`；每项含前置依赖、计划输出
 
 本次就地修订 AGENTS/CHART_MVP/README/PROGRESS，记录建仓专项授权和任务入口；新增 `.gitignore` 排除依赖、凭证、构建、生成行情与大量证据。保留原始开发包与 DATA_CONTRACT 不变。提交范围限定六份现有文档和 `.gitignore`；本次无业务测试、无图表截图，仍无可运行 npm 命令。
 
+### 文档归档验证
+
+- Python 检查现有文档的本地 Markdown 链接、原始开发包 SHA-256 及无实现文件：PASS；`git diff --cached --check`：通过。
+- `git add .gitignore AGENTS.md README.md Codex_Chart_MVP_Development_Pack.md docs/CHART_MVP.md docs/DATA_CONTRACT.md docs/PROGRESS.md` 后执行 `git commit -m 'docs: archive C0 specification and GitHub stage tracking'`：成功，归档提交为 `eb843d1ec44a3755f3630dffdca35f0317a7ddfa`，共 7 个文件。
+- `git push -u origin main`：成功。`git rev-parse HEAD` 与 `git ls-remote origin refs/heads/main` 在该归档检查点均为上述完整 commit；`git status --short --branch` 输出 `## main...origin/main`，无未提交文件。
+- 逐一使用 GitHub contents API 读取 main 的 7 个文件，Base64 解码后与本地原始字节比较：全部一致。里程碑回读为 OPEN、6 个 open Issues、0 个 closed Issues。
+- 此段是归档检查点之后的验证记录补充，随独立文档提交保存；当前最终 commit 以 `git log -1` 与远程 main 为准，避免在文档中形成自引用哈希。
+
 **唯一下一步：等待用户批准 C1，再执行一次真实历史下载、固定DEMO生成与数据校验；不自动进入C2。**
