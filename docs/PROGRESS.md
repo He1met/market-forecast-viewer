@@ -4,6 +4,18 @@
 
 下方C0/建仓记录属于历史，当前结果见各阶段交接段。
 
+## 2026-09-12 研发巡检设置（进行中）
+
+用户专项授权官方每小时“Chart MVP 进度巡检”，只读本项目与既有证据，通过现有 PR #7 脱敏报告和读取监督反馈；这是研发流程例外，不是行情自动更新或第二个代码写入者。唯一实施者在本次安全检查点更新 AGENTS/PROGRESS；业务代码、三份行情/DEMO文件、原始开发包保持不变。
+
+设置前实际检查：本地 feat/chart-mvp、origin/feat/chart-mvp 与 PR #7 head 均为 `092b5362f2ef1a1174788ec328691f14efcbd178`，工作区干净；origin/main仍为 `f4b4bf77dc99f619084088998d82a4f41bdea57d`。PR为OPEN/Draft，GitHub当前PUBLIC，未改变。官方 automation_update 创建/回读入口可用，已只读检索本机既有任务配置，未找到本项目同职责任务。
+
+已通过GitHub实际读取初始化 comment_id=5645723949 / review_id=MFV-SUP-BOOTSTRAP-20260912，并读取后续 comment_id=5645744231 / review_id=MFV-SUP-BASELINE-20260912-01。后续建议所查head为较早C4提交0b9bfa5；当前C5已工程交付，不把旧head的下一步重复执行。MFV-ACT-001首报告待任务配置完成；MFV-ACT-002将核对现有独立审查与修复收据后回执，不以收到建议充当完成；MFV-ACT-003仓库可见性决定仍待用户，保持现状及脱敏策略，不阻塞已授权只读巡检。
+
+当前真实阻塞：用户指定 `Codex_Chart_MVP_Supervision.md` 在本地（含被忽略文件）和远程功能分支根目录均未找到，已请求实际路径或完整正文。须取得文件内完整任务正文后才创建；尚无任务ID、首报告或无人值守运行证明。未改官方应用数据库或手写任务配置；未运行本轮业务测试。后续实际结果追加在本节，不以此准备记录宣称设置完成。
+
+本次只读复核现有C5证据：unit.log为43/43；E2E记录expected=28、skipped=0、unexpected=0、flaky=0；历史audit为0，dev/preview启动停止和BFCache回执为PASS。C5代码收据36项中35项与当前哈希一致，仅后续PROGRESS文档已变化；独立审查记录四项已修复并复核，用户视觉验收为false。这是既往证据回读，不是本轮重新测试，远端监督者尚未据此看到LOCAL_ONLY原始证据。原始开发包SHA仍为 `dee5d878f2c681ba4ef0afdd56a0ad470e581647afa034b1874589402cc29bff`。仅修改AGENTS/PROGRESS，已重新阅读AGENTS、提交前复读PR反馈且无新留言，git diff --check通过；准备记录随功能分支文档提交保存，实际提交/推送状态以Git回读为准。
+
 ## C0 初次环境与实际检查（历史记录）
 
 | 检查 | 实际结果 |
