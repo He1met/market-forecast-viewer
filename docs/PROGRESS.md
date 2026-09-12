@@ -1,10 +1,42 @@
 # 开发进度与证据
 
-当前状态：C0基线已由用户确认，C1–C4技术通过，C5工程验证和独立审查均已通过，最终停在“工程交付，待用户视觉验收”。用户视觉验收未发生。当前分支feat/chart-mvp，Draft PR #7；原始数据/截图留在本地。
+当前状态：C0基线已由用户确认，C1–C4技术通过，C5工程验证和独立审查均已通过，最终停在“工程交付，待用户视觉验收”。已收到用户可理解性反馈，尚未通过用户视觉验收。当前分支feat/chart-mvp，Draft PR #7；原始数据/截图留在本地。
 
 下方C0/建仓记录属于历史，当前结果见各阶段交接段。
 
-## 2026-09-12 研发巡检设置（已启用，手动首报告回读通过）
+## 2026-09-12 W0 / Issue #8 设置检查点
+
+当前结论：`SETUP_BLOCKED`（权限核验未满足），`setup_ready=false`。官方任务已经原位从 heartbeat 改为项目绑定的 Local cron 执行任务，保持 PAUSED；没有重复任务。#9 保持 `queue:codex + status:blocked`，等待配置确认，本会话未实施任何试点 UI。#8 不加入 queue:codex，保持 OPEN；配置与完整自然闭环均未获 ChatGPT 审查通过。
+
+安全接管：完整读取 #8/#9、PR #7 全部评论（最新5646707919，review/inline review为空）和当前四份规则/规格/进度；初始本地/remote/PR head均d1a273fa075033781acf2a60def81525b6c09a6d，工作区干净，仅一个worktree。原实施任务官方状态 idle、上一轮 completed；旧 chart-mvp 已先由官方入口 PAUSED并回读，再取得 Git common dir 下原子 writer.lock。没有其他本项目活跃写入者被观察到。监督 action 005仍交#9待自然实施；006/007仍是未授权后续范围，用户反馈不等于视觉通过。
+
+实际配置（官方 automation_update update/view + 只读 automation.toml 回读）：
+
+| 字段 | 实际值 |
+| --- | --- |
+| ID / 名称 | chart-mvp / market-forecast-viewer 任务执行 |
+| kind / 环境 | cron（独立项目运行）/ local，已有功能分支checkout |
+| 项目 | market-forecast-viewer，project_id=36387a56-c942-4083-9bca-3057dcb3b6b8 |
+| 频率 / 状态 | 每小时一次 / PAUSED |
+| 模型 | gpt-6-astra / medium，沿用本机已配置默认值；无其他模型服务 |
+| 正文 | Issue #8第3节稳定正文逐字设置，W0详细规则在AGENTS |
+| 自然执行证据 | 新执行模式 scheduled_trigger_observed=false；旧只读巡检5646600164不能代替 |
+
+权限阻塞的直接依据：当前会话及只读官方配置均显示 `sandbox_mode=danger-full-access`、`approval_policy=never`。这不是本次设置引入的，本轮未改配置/全局安全策略。当前官方 automation_update 入口没有提供任务级 sandbox/approval 设置或可核验的权限覆盖字段，不能把名称/频率回读当成“保留正常沙箱和工具审批”已验收。因此不启用自动写入，保留 PAUSED，不伪造 setup_ready。官方说明也指出本机定时任务继承权限配置，默认无人值守审批可能为never：[Scheduled tasks](https://learn.chatgpt.com/docs/automations?surface=app)。本轮未编辑官方内部数据库、automation.toml、全局配置，也未建cron/launchd替代。
+
+需要官方桌面端完成的具体步骤：打开 Scheduled，编辑已有 chart-mvp（不要新建）；保留上述本地项目、Local环境、小时频率和Issue #8正文。在官方权限设置中核对并切到用户要求的标准沙箱（workspace-write）及正常审批设置，核验定时运行实际是否继承该限制；若当前版本定时强制never，保留暂停并明确能力限制，不能声称支持交互审批。权限证据满足后由设置会话回读并启用同一任务、补发setup_ready收据；ChatGPT再发布configuration_ready且放行#9，随后等待自然运行。当前工具不能替代此权限设置/核验步骤。
+
+最小实现：仅新增scripts/executor.mjs和tests/executor.test.mjs，就地更新AGENTS/CHART_MVP/PROGRESS。六个必要标签已通过正规gh接口创建，其他标签保留；#8无queue标签，#9未标ready。辅助代码只提供common-dir锁、归属校验、原子检查点和只读队列候选排序；Scope/前置/领取/测试/提交/报告由官方Codex按AGENTS执行，不是常驻平台或自动执行Issue正文的程序。
+
+实际验证：`node --test tests/executor.test.mjs`专项通过，覆盖跨linked worktree排他、错误owner释放拒绝、残留锁不按时间回收、用户暂停、脏工作区/index/untracked内容变化拒绝恢复、bootstrap安全交接、队列过滤排序和正文版本哈希。真实仓库第二run acquire返回LOCK_BUSY（exit0），`node scripts/executor.mjs queue`返回EMPTY_QUEUE（exit0），本任务真实脏工作区保存/恢复返回CHECKPOINT_MATCH。配置读取成功；初次用系统Python读取TOML失败（缺tomllib），改用已有Node解析当前简单字段后成功，未安装工具。
+
+LOCAL_ONLY证据：artifacts/w0/unit.log、manual-receipt.json、automation-readback.toml；checkpoint与owner仅在Git common dir，不公开绝对路径/主机或会话详情。三文件存在并记录SHA，未下载/重生成/改写；业务UI、原始开发包、DATA_CONTRACT不变。未运行图表unit/E2E/typecheck/build，因为只改独立Node辅助代码和流程文档，已有C5测试不冒充本轮复测。设置提交、推送与PR报告写入/逐字回读收据在后续交接段及PR #7；工程最小写入以这些真实结果验收。
+
+唯一下一步：完成上述官方桌面端权限核验，恢复本设置任务补齐启用回读，再交ChatGPT配置审查；#9继续blocked。本次不等待一小时、不手动触发试点，不宣称自然调度或闭环通过。
+
+
+
+## 2026-09-12 研发巡检设置（历史；已被 W0 原位改造并暂停）
 
 用户专项授权官方每小时“Chart MVP 进度巡检”，只读本项目与既有证据，通过现有 PR #7 脱敏报告和读取监督反馈；这是研发流程例外，不是行情自动更新或第二个代码写入者。唯一实施者在本次安全检查点更新 AGENTS/PROGRESS；业务代码、三份行情/DEMO文件、原始开发包保持不变。
 
