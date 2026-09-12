@@ -11,6 +11,7 @@
     "demo:generate": "tsx scripts/make-demo.mjs",
     "data:validate": "tsx scripts/validate-data.mjs",
     "test": "vitest run tests/data.test.ts tests/demo-explanation.test.ts",
+    "test:m1": "vitest run tests/m1-contracts.test.ts && node --import tsx --test tests/m1-archive.test.mjs tests/m1-runner.test.mjs tests/m1-events.test.mjs tests/m1-local-only.test.mjs",
     "typecheck": "tsc --noEmit",
     "dev": "vite --host 127.0.0.1 --port 5173 --strictPort",
     "build": "tsc --noEmit && vite build",

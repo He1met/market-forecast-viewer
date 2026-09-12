@@ -1,8 +1,35 @@
 # 开发进度与证据
 
-当前状态：M0/C1–C5与#9工程通过，用户五项视觉验收已通过，#9审查已自然轮确认。用户2026-09-13进一步批准现有定时任务执行本项目所有开发任务，不限制M1或Issue编号；通用执行范围优化完成，手动领取验证已正确绑定#11，待自然轮恢复实施。feat/chart-mvp、PR #7，原始数据/截图留本地。
+当前状态：M0/C1–C5与#9工程、用户五项视觉验收及自然审查确认均通过，规划侧已关闭#8/#9。#11已从原手动claim恢复，完成单次Codex实验预报与本地不可覆盖归档；首份有效run事前发布，待PR #7规划侧审查。#12–#14仍受技术依赖门禁约束，未启用两小时业务任务。feat/chart-mvp，原始数据/模型输出/截图留本地。
 
 下方C0/建仓记录属于历史，当前结果见各阶段交接段。
+
+## 2026-09-13 #11 单次 Codex 实验预报与归档
+
+本轮由既有chart-mvp自然触发，run_id=MFV-SCHEDULED-20260913T0211-01a096ce，trigger=scheduled。延续原手动领取的#11 v1（正文SHA 2dfb8c2c75a01bf779e6c96e8697ff60b842c6111645ab02ac7b7bf02b319eae），claim_base_sha=2674eeb6f5c7ea54d0b83ff916846ab8153d1c00；实际实施起点为维护文档交接后的28b5517c4e1208a0f5e93885730a64d6a2f03fa5。fresh完整sync后，原检查点/维护handoff/文件指纹匹配。规划review5187388245确认原claim有效并将#11改为in-progress，故使用现有bind→checkpoint恢复，不重领，也不宣称本轮新verify-release/queue/claim成功。
+
+该review的MFV-ACT-019-RESTORE-STAGE-BOUNDARY要求收窄开发范围，与本轮直接用户授权冲突，记录DISAGREED_DIRECT_USER_PRECEDENCE；未将收到记为已修复，也未改自动化正文/设置。仍按具体Issue放行与依赖执行；没有从ready标签推导交易、付费或新业务任务权限。原M1_EXECUTION_SCOPE_NOT_ALIGNED已解决，不重复要求用户批准M1。
+
+实现集中在docs/M1_FORECAST.md、严格分类/输出契约、事件输入核验、独立run准备/模型调用/原子归档。规则先于实际输入冻结：6/12/24h收盘采样六类互斥事件、24h主观未校准概率、96节点代表路径与阶段模型范围；不修改原DEMO三文件或DATA_CONTRACT，不添加收益或交易。Vite保留默认敏感文件保护，并禁止artifacts/.codex经静态请求或@fs泄露，原始run不进入网页。
+
+### 实际运行结果
+
+有效run_id=m1-20260912T183644170Z-571e6089-d6eb-4a8d-beb4-37b70593aad1。OKX指定品种/15m，5页原始响应重建1,344完整连续柱，窗口2026-08-29T18:30:00Z至2026-09-12T18:30:00Z，缺口/冲突为0。实际downloaded_at=2026-09-12T18:36:45.257Z，information_frozen_at=18:36:45.318Z，官方Codex生成18:37:04.079Z至18:39:25.856Z，first_published_at=2026-09-12T18:39:25.873Z，首个未来节点18:45:00Z；status=valid，事前余量334.127秒，没有平移时间。6类各96节点、概率总和1、路径类别/阶段/锚点与严格schema全部通过。
+
+使用本机官方codex-cli 0.154.0-alpha.6.2及已核实的既有ChatGPT登录，无API key认证、没有读取凭证。实际精确模型标识未从JSONL暴露，记录unknown；不根据配置名称猜实际模型版本。无工具活动，保存一条已核实且发生在turn.started前的chronicle客户端启动提示，没有修改全局配置来隐藏它。宏观资料因官方日历精确时间/发布时间不足以及BLS403，按market_only降级；明确未纳入事件风险，OI/funding均unknown。
+
+有效输入SHA=99d1bb95268f3e05653c76f3e7dca88f4446bb2c35555edc2a094916cf4e0491；raw模型输出SHA=32246b7473501bcf43a6c5656cbb8b46479d5dce4ba3595c3606fd54e4b6e6e2；forecast SHA=5b4a9a5957212614f1f363e4799fc240fed62bf4c9b046c870ba5224b6878bc6。实际重复publish返回完全相同的首次时间、对象与六份关键文件SHA；M0三文件、DATA_CONTRACT和原开发包SHA均未变。独立执行来源/输出核验通过，不将参与编写归档模块者的运行核验称作独立审自己代码。
+
+### 测试、失败与证据限制
+
+- npm run test:m1：最近完整检查58项Vitest分类/契约 + 58项Node（归档17、事件36、运行器4、本地服务1）通过；最后收紧启动提示的整条文本匹配后，运行器4/4再通过，其余文件SHA一致。
+- npm test：M0回归59/59通过；npm run typecheck、npm run build及git diff --check通过。没有Canvas/交互代码变化，未重跑全套图表浏览器检查；本地服务隔离专项是真实HTTP验证，测试服务已关闭。
+- 独立只读审查发现并修复完整输入误传strict锚点、失败收据遗漏、终止宽限/未知事件拒绝、冻结代码漂移、事件来源/时序/路径、原始档案静态服务等问题；相关负例全部保留。
+- 第一个真实run m1-20260912T183028367Z-ac8f0a3e-ae24-4cb5-8c29-618df2c5c668 的模型exit0且原始JSON有效，但启动提示被原门禁误分类为错误；未发布，原始输出和失败收据保留。修复只允许已核实的完整pre-turn提示文本，其他错误/工具/畸形事件仍拒绝。因代码SHA改变创建第二个新run，未提升/覆盖首份输出。总计两次真实输入和两次Codex调用，只有第二run有效发布。
+- 服务隔离首个测试错误要求编码斜杠一律403，实际为不含sentinel、与首页SHA相同的SPA回退；按实际泄露判据修正，保留初次失败日志。
+- 小型诊断限制：signal异常退出的cli_exit_code:null可能回退记录为effective -1，signal与timeout仍独立保留；本次两次实际CLI均正常exit0，不影响当前有效结果。预测准确性/概率校准、页面接入、真实到期评分和两小时自然业务运行尚未验证，不能由本工程结果推断。
+
+所有原始材料在gitignored的artifacts/forecast-runs、artifacts/data-source及本轮artifacts/executor/runs目录，完整日志/模型输入输出为LOCAL_ONLY。唯一下一步：规划侧审查#11交付，通过后放行#12图表接入；本轮不领取第二项、不合并PR、不改规划标签。提交/push/报告回读及最终head另由同锁handoff保存。
 
 ## 2026-09-13 通用开发定时任务优化
 
