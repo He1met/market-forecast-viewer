@@ -51,16 +51,18 @@
 - 复用官方任务chart-mvp，“market-forecast-viewer 任务执行”，Local cron，每小时一次；不新建任务。实际启用状态见PROGRESS与官方回读。
 - 定时Codex读取本地同步材料、取得本地锁、修改批准范围的工作区、运行相关测试、保存LOCAL_ONLY receipt/checkpoint；测试通过后允许仅向feat/chart-mvp提交推送并回写PR #7。使用既有Git/gh认证，不读取或输出凭证明文，不自行修改权限/自动化/放行材料；Git只读查询设置GIT_OPTIONAL_LOCKS=0。
 - 用户最新批准本项目danger-full-access + never；不改全局配置或其他项目。定时任务继承默认权限，必须记录真实runtime；配置解析与自然运行权限验收分开。若平台拒绝操作则保存阻塞，不绕过组织策略。完全访问不扩大任务范围、不授予任意文件/账户操作权。
-- ChatGPT GitHub Connector继续负责创建/放行/状态/审查；Codex可发布本轮PR报告。定时执行者负责测试后commit/push，交互会话只接手异常恢复；不再要求用户每阶段手动归档。没有自动Connector到本地文件同步通道，任务放行/审查仍需显式本地同步并核验来源。
+- ChatGPT GitHub Connector继续负责创建/放行/状态/审查；Codex可发布本轮PR报告。定时执行者负责测试后commit/push，交互会话只接手异常恢复；不再要求用户每阶段手动归档。任务放行/审查由下述持锁只读联网流程自动同步并核验来源。
 - 批准范围仍仅W0流程改造及既有Chart MVP可理解性修正；ready或评论不能扩大授权。#8永不入业务队列；#9必须有configuration_ready放行证据。真实预测、收益、交易、行情定时任务、其他模型、main/强推/合并/可见性变更均禁止。
 
-### 本地同步输入
+### 每轮联网同步输入（2026-09-13最新授权）
 
-唯一队列为主checkout忽略目录artifacts/executor/inbox.json，schema=MFV:INBOX:v1。由获授权交互同步者原子写入，记录repo、sync_id、synced_at、expires_at、issues、releases、reviews。有效期由同步者显式设置，建议24小时；缺失、过期或不合法则等待同步，定时器不得自行延期或联网刷新。
+用户已授权定时器自行联网同步，替代旧人工同步限制。每轮取得锁后、任何领取/恢复/归档前执行`node scripts/executor.mjs sync RUN_ID`。该命令仅用既有gh认证GET本仓库完整分页Issues、PR #7评论/正式reviews，以及#8/#9/候选Issue评论；不修改远端标签或放行，不读取凭证明文。同步开始先使旧inbox失效，失败/超时/中断均不能继续旧ready。成功才原子发布artifacts/executor/inbox.json（15分钟有效，本轮run_id绑定）；scheduled claim拒绝非本轮同步。长阶段开始前重新同步，检查正文/版本/反馈是否变化。
 
-issues保存完整GitHub Issue对象（number/state/labels/body/created_at/updated_at）。releases逐项保存issue_number/task_version/updated_at/body_sha256、approved=true、dependencies_satisfied=true、branch=feat/chart-mvp、scope=chart-mvp-comprehensibility、review_id/source_comment_url；#9另须gate=configuration_ready。哈希绑定正文，不是身份认证；同步者必须核实用户范围、ChatGPT来源与全部依赖。仅queue:codex + status:ready、单一状态、open、execution_kind=queue_task、明确P0/P1/P2/task_version合格。未放行的#9保留blocked且releases为空。
+当前唯一已核实业务试点#9的task_version=1、完整正文SHA及正式放行review5187124672（MFV-SUP-W0-CONFIG-READY-20260913-01、configuration_ready）的作者ID/正文SHA/设置commit绑定在executor的pilotApproval。来源是已实际读取的仓库所有者He1met（ID65616876）经ChatGPT Connector提交的PR review，不是看到marker或ready就推断批准。该review明确放行当前#9；同步记录真实updated_at/body_sha256、源URL、scope及依赖。检查ready/open/唯一状态、原批准正文版本、GitHub blocked_by=0、PR功能分支/仓库，回读Issue/review/PR拒绝中途变化。未知任务或变更正文不继承此放行。
 
-reviews保存实际同步的review_id/action_id、issue_number、report_id、reviewed_head_sha、正文、来源URL、决定及同步时间。定时器结合当前规格逐条读取，RECEIVED不等于FIXED；不执行越权内容。纯回执不触发无限互评。
+当前#9远端已ready（2026-09-12T16:25:44Z），本设置会话只同步并验证资格，不手工claim/实施。新的同范围监督决定优先于旧门禁；脚本发现更新的监督决定会将资格留给证据核验，不能静默复用旧批准。无需让ChatGPT重复发布已经存在的配置放行。
+
+inbox仍采用MFV:INBOX:v1（issues完整正文，releases绑定版本/哈希/依赖，reviews按来源URL去重保留完整评论与正式审查），另记sync_status/sync_run_id/remote_head_sha。审查每轮自动刷新；执行者按review_id/action_id+Issue+报告+SHA去重记录处理结果，RECEIVED不等于FIXED，不执行越权内容。联网失败使用稳定REMOTE_SYNC_FAILED记录证据/通知去重，不每小时刷同一错误；没有新证据不强行领取。机械门禁只是最低条件，Codex仍须阅读全文核对授权、范围及依赖。
 
 ### 单写入、每轮最多一项与恢复
 
@@ -79,6 +81,6 @@ reviews保存实际同步的review_id/action_id、issue_number、report_id、rev
 
 在PR #7发布MFV:REPORT:v1，含Issue/run/trigger/task_version/base/head/真实测试/LOCAL_ONLY限制/下一步。先持久化正文，查同report_id去重，成功后GET逐字回读；超时先查询，不能盲目重发。GitHub标签、ready放行、审查仍交ChatGPT Connector。receipt的git_write=false/github_write=false只描述本地实施阶段；归档的实际写入必须单独记录handoff，不以旧receipt冒充归档成功。每轮最多同一Issue，归档成功checkpoint phase=awaiting_review。
 
-同步者把ChatGPT审查正文/来源/Issue/报告/提交/版本写入inbox.reviews；下一自然轮在持锁状态核实并以review_id/action_id去重保存本地确认，RECEIVED不等于FIXED。同意通过才标acknowledged；返工需新的ready放行与明确同步后的implementing检查点，不自行解除blocked。
+每轮联网同步把ChatGPT审查正文/来源/Issue/报告/提交/版本写入inbox.reviews；下一自然轮在持锁状态核实并以review_id/action_id去重保存本地确认，RECEIVED不等于FIXED。同意通过才标acknowledged；返工需新的ready放行与明确同步后的implementing检查点，不自行解除blocked。
 
 bootstrap_handoff/acknowledged仅在工作区clean时允许下一项进入；归档后的HEAD变化必须有handoff证据。#8不提前关闭；#9仍需ChatGPT配置审查、显式configuration_ready和本地ready同步，之后由自然定时领取。自然领取/实现/测试/提交推送/报告/审查回流均未验证前，不宣称完整闭环通过。

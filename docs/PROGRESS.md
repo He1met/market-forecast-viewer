@@ -4,6 +4,18 @@
 
 下方C0/建仓记录属于历史，当前结果见各阶段交接段。
 
+## 2026-09-13 在线队列同步（当前）
+
+用户最新授权定时器自行联网；仅#8流程改造，#9保留自然实施。起点HEAD=b40967d425bf5e461ff72f034cc1624bae16aae2、clean；持有manual_setup锁，监督任务不写工作区。旧本地inbox仍blocked是缓存过时，不能描述为当前远端状态。
+
+真实分页读取Issues、#7评论及正式reviews、#8/#9评论，找到PR review5187124672 / MFV-SUP-W0-CONFIG-READY-20260913-01：配置审查通过并明确放行#9自然领取。#9目前OPEN/queue:codex/status:ready，updated_at=2026-09-12T16:25:44Z；task_version=1，正文SHA=f74c22b5823d3d8d242b45a5f1596a94ebf0b6a74f669454787310c97c555ee4。review作者ID65616876、review正文SHA9ca248f2aed9a97bb230e347d5c8432e30565335e6e3cdec91f9d9d2f85c6f90、配置commit b40967d均已核对。不另造批准字段、不要求重复放行。
+
+executor增加持锁sync命令：仅GET、完整分页、评论与正式review全读、来源URL去重；开始即使旧缓存失效，失败/中途变化拒绝旧ready，成功原子发布15分钟inbox；scheduled claim须本轮sync。当前机械放行仅绑定已有批准的#9正文/版本/来源，未知或新增范围不自动继承。后续审查自动同步但仍需实际核对语义与Issue/提交关联；标签变更仍由ChatGPT Connector负责。
+
+node --test tests/executor.test.mjs：13/13 PASS，新增来源伪造/正文变化、失败缓存失效、回读竞态、本轮同步绑定、依赖不满足/新监督优先及去重。真实node scripts/executor.mjs sync本设置run返回SYNCED/PILOT_READY，候选仅#9，22项评论/review去重结果；未调用claim #9、未改产品代码或数据。本次是手动只读同步验证，不是自然完整闭环。
+
+官方chart-mvp通过automation_update原位更新并回读，ACTIVE/每小时/Local/项目/模型/完全访问never及通知意图保留；每轮持锁后先sync，不再要求人工刷新。设置提交/remote SHA/PR报告见本轮在线同步归档收据。唯一下一步：等待自然定时轮重新联网核验并领取#9，提交测试报告供ChatGPT审查。下方为历史记录。
+
 ## 2026-09-13 完全访问授权与executor_setup_archive（当前）
 
 用户最新明确要求“直接给定时任务完全访问权限，然后继续推进”，替代此前禁止full access及强制交互归档安排；#9仍等待ChatGPT放行，不实施。六个未提交文件均属#8；没有产品功能修改或额外文件进入归档范围。

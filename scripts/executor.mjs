@@ -131,13 +131,74 @@ export function queueCandidates(issues) {
     || a.created_at.localeCompare(b.created_at) || a.issue_number - b.issue_number);
 }
 
-// Inbox is synchronized by an authorized interactive handoff, never by the worker.
+// Only the currently reviewed pilot is mechanically admitted. Unknown scope/version
+// remains visible in issues, but must not inherit this pilot's approval.
+export const pilotApproval = Object.freeze({ issue: 9, version: 1, author: 65616876,
+  body: 'f74c22b5823d3d8d242b45a5f1596a94ebf0b6a74f669454787310c97c555ee4',
+  review: 5187124672, reviewBody: '9ca248f2aed9a97bb230e347d5c8432e30565335e6e3cdec91f9d9d2f85c6f90',
+  head: 'b40967d425bf5e461ff72f034cc1624bae16aae2' });
+const repo = 'He1met/market-forecast-viewer';
+const github = endpoint => JSON.parse(execFileSync('gh', ['api', '--paginate', '--slurp',
+  `repos/${repo}/${endpoint}`], { encoding: 'utf8', timeout: 60000, maxBuffer: 16 * 1024 * 1024 })).flat();
+
+export function syncInbox(c, runId, get = github, approval = pilotApproval) {
+  owned(c, runId);
+  const file = path.join(c.base, 'inbox.json');
+  // Invalidate before network I/O: crashes and failed refreshes cannot reuse ready.
+  atomic(file, { schema: 'MFV:INBOX:v1', sync_status: 'SYNCING', releases: [] });
+  try {
+    const issues = get('issues?state=all&per_page=100').filter(x => !x.pull_request);
+    const comments = get('issues/7/comments?per_page=100');
+    const reviews = get('pulls/7/reviews?per_page=100');
+    for (const number of new Set([8, 9, ...queueCandidates(issues).map(x => x.issue_number)])) {
+      comments.push(...get(`issues/${number}/comments?per_page=100`));
+    }
+    const pr = get('pulls/7')[0];
+    const unique = [...new Map([...comments, ...reviews].map(x => [x.html_url, x])).values()];
+    const task = issues.find(x => x.number === approval.issue);
+    const gate = reviews.find(x => x.id === approval.review);
+    const trustedGate = gate?.user?.id === approval.author && gate.state === 'COMMENTED'
+      && sha(gate.body) === approval.reviewBody && gate.commit_id === approval.head;
+    // Any newer supervisor decision touching this pilot/config requires re-evaluation,
+    // rather than allowing an older approval to override it.
+    const newerDecision = unique.some(x => x.user?.id === approval.author
+      && Date.parse(x.submitted_at || x.updated_at) > Date.parse(gate?.submitted_at)
+      && x.body?.includes('MFV:SUPERVISOR:v1') && /issue_number:\s*`?(8|9)\b/.test(x.body));
+    const eligible = queueCandidates(issues).some(x => x.issue_number === 9)
+      && task?.user?.id === approval.author && sha(task.body) === approval.body
+      && issueStamp(task).task_version === approval.version && trustedGate && !newerDecision
+      && task.issue_dependencies_summary?.blocked_by === 0
+      && pr?.state === 'open' && pr.head?.ref === 'feat/chart-mvp'
+      && pr.head?.repo?.full_name === repo;
+    // Double-read live task/review/PR: reject changes during the multi-request snapshot.
+    const again = get('issues/9')[0], againGate = get(`pulls/7/reviews/${approval.review}`)[0];
+    const againPr = get('pulls/7')[0];
+    if (JSON.stringify(again) !== JSON.stringify(task) || JSON.stringify(againGate) !== JSON.stringify(gate)
+      || againPr.head?.sha !== pr.head?.sha) throw Error('REMOTE_CHANGED_DURING_SYNC');
+    const inbox = { schema: 'MFV:INBOX:v1', repo, sync_status: 'OK', sync_run_id: runId,
+      sync_id: randomUUID(), synced_at: new Date().toISOString(),
+      expires_at: new Date(Date.now() + 15 * 60 * 1000).toISOString(), issues,
+      reviews: unique, remote_head_sha: pr.head.sha,
+      releases: eligible ? [{ ...issueStamp(task), approved: true, dependencies_satisfied: true,
+        branch: 'feat/chart-mvp', scope: 'chart-mvp-comprehensibility', gate: 'configuration_ready',
+        review_id: 'MFV-SUP-W0-CONFIG-READY-20260913-01', source_comment_url: gate.html_url }] : [],
+      gate_result: eligible ? 'PILOT_READY' : 'REQUIRES_EVIDENCE_REVIEW' };
+    atomic(file, inbox);
+    return { status: 'SYNCED', gate_result: inbox.gate_result, candidates: localQueue(c).candidates,
+      review_count: unique.length, remote_head_sha: pr.head.sha };
+  } catch (error) {
+    atomic(file, { schema: 'MFV:INBOX:v1', sync_status: 'FAILED', releases: [],
+      blocker_key: 'REMOTE_SYNC_FAILED', error: error.message, failed_at: new Date().toISOString() });
+    throw error;
+  }
+}
+
 // Hashes bind the reviewed bytes; they are not authentication or new authorization.
 export function localQueue(c, now = Date.now()) {
   const file = path.join(c.base, 'inbox.json');
   if (!fs.existsSync(file)) return { status: 'WAITING_LOCAL_SYNC', candidates: [] };
   const inbox = json(file);
-  if (inbox.schema !== 'MFV:INBOX:v1' || inbox.repo !== 'He1met/market-forecast-viewer'
+  if ((inbox.sync_status && inbox.sync_status !== 'OK') || inbox.schema !== 'MFV:INBOX:v1' || inbox.repo !== 'He1met/market-forecast-viewer'
     || !Array.isArray(inbox.issues) || !Array.isArray(inbox.releases)
     || !Array.isArray(inbox.reviews) || !inbox.sync_id
     || !Number.isFinite(Date.parse(inbox.expires_at)) || Date.parse(inbox.expires_at) <= now
@@ -162,6 +223,7 @@ export function claim(c, runId) {
   if (snapshot(c).branch !== 'feat/chart-mvp') throw Error('WRONG_BRANCH');
   const queue = localQueue(c);
   if (!['LOCAL_READY', 'EMPTY_QUEUE'].includes(queue.status)) return { status: queue.status };
+  if (owner.trigger === 'scheduled' && queue.inbox.sync_run_id !== runId) return { status: 'FRESH_SYNC_REQUIRED' };
   const previous = fs.existsSync(c.state) ? json(c.state) : null;
   const pending = previous && !['bootstrap_handoff', 'acknowledged'].includes(previous.phase);
   if (pending && ['awaiting_handoff', 'awaiting_review', 'blocked'].includes(previous.phase)) {
@@ -219,6 +281,7 @@ function main() {
   }
   else if (command === 'checkpoint') result = saveCheckpoint(c, args[0], json(args[1]));
   else if (command === 'claim') result = claim(c, args[0]);
+  else if (command === 'sync') result = syncInbox(c, args[0]);
   else if (command === 'receipt') result = receipt(c, args[0], json(args[1]));
   else if (command === 'recover') result = recovery(c, Number(args[0]));
   else if (command === 'release') result = release(c, args[0]);

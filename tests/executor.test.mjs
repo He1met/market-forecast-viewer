@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { context, acquire, release, saveCheckpoint, recovery, queueCandidates, issueStamp, localQueue, claim, receipt } from '../scripts/executor.mjs';
+import { context, acquire, release, saveCheckpoint, recovery, queueCandidates, issueStamp, localQueue, claim, receipt, syncInbox, sha } from '../scripts/executor.mjs';
 
 function fixture(t) {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'mfv-w0-test-'));
@@ -121,4 +121,47 @@ test('legacy lock blocks migration; foreign dirty workspace blocks a locally rel
   inbox(c); acquire(c, { ...owner(), issue_number: 0 });
   fs.writeFileSync(path.join(c.root, 'file.txt'), 'unknown writer');
   assert.equal(claim(c, 'first').status, 'FOREIGN_DIRTY');
+});
+
+function onlineFixture() {
+  const task = { ...issue(9), user: { id: 1 }, issue_dependencies_summary: { blocked_by: 0 } };
+  const gate = { id: 2, user: { id: 1 }, state: 'COMMENTED', body: 'fixture approved pilot',
+    commit_id: 'base', submitted_at: '2026-09-12T00:00:00Z', html_url: 'review/2' };
+  const pr = { state: 'open', head: { ref: 'feat/chart-mvp', sha: 'head', repo: { full_name: 'He1met/market-forecast-viewer' } } };
+  const approval = { issue: 9, version: 1, author: 1, body: sha(task.body), review: 2, reviewBody: sha(gate.body), head: 'base' };
+  const comments = [];
+  const get = endpoint => endpoint.startsWith('issues?') ? [task]
+    : endpoint === 'issues/9' ? [task]
+    : endpoint.startsWith('pulls/7/reviews') ? [gate]
+    : endpoint === 'pulls/7' ? [pr] : comments;
+  return { task, gate, approval, get, comments };
+}
+test('online sync admits verified pilot, deduplicates reviews, rejects forged gate and changed task', t => {
+  const { c } = fixture(t); acquire(c, owner()); const x = onlineFixture();
+  assert.equal(syncInbox(c, 'first', x.get, x.approval).gate_result, 'PILOT_READY');
+  x.comments.push({ id: 3, html_url: 'comment/3', body: 'plain comment' });
+  assert.equal(syncInbox(c, 'first', x.get, x.approval).review_count, 2);
+  x.gate.user.id = 7;
+  assert.equal(syncInbox(c, 'first', x.get, x.approval).candidates.length, 0);
+  x.gate.user.id = 1; x.task.body += 'new scope';
+  assert.equal(syncInbox(c, 'first', x.get, x.approval).candidates.length, 0);
+});
+test('failed or inconsistent online sync invalidates old ready; scheduled claim requires same-run sync', t => {
+  const { c } = fixture(t); inbox(c); acquire(c, { ...owner(), issue_number: 0, trigger: 'scheduled' });
+  assert.equal(claim(c, 'first').status, 'FRESH_SYNC_REQUIRED');
+  assert.throws(() => syncInbox(c, 'first', () => { throw Error('network down'); }), /network down/);
+  assert.equal(localQueue(c).status, 'INVALID_OR_EXPIRED_INBOX');
+  const x = onlineFixture();
+  assert.throws(() => syncInbox(c, 'first', endpoint => endpoint === 'issues/9'
+    ? [{ ...x.task, updated_at: 'changed' }] : x.get(endpoint), x.approval), /REMOTE_CHANGED/);
+  assert.equal(localQueue(c).candidates.length, 0);
+});
+test('newer supervisor decision and unsatisfied dependencies prevent stale approval reuse', t => {
+  const { c } = fixture(t); acquire(c, owner()); const x = onlineFixture();
+  x.task.issue_dependencies_summary.blocked_by = 1;
+  assert.equal(syncInbox(c, 'first', x.get, x.approval).candidates.length, 0);
+  x.task.issue_dependencies_summary.blocked_by = 0;
+  x.comments.push({ user: { id: 1 }, html_url: 'comment/4', updated_at: '2026-09-13T00:00:00Z',
+    body: '<!-- MFV:SUPERVISOR:v1 -->\n- issue_number: `9`\n- status: STOP' });
+  assert.equal(syncInbox(c, 'first', x.get, x.approval).candidates.length, 0);
 });
