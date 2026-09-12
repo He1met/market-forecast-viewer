@@ -22,7 +22,7 @@
 
 ## 技术选择与官方核对
 
-采用 Vite + TypeScript + 原生 HTML/CSS，一个页面、一个 `loadDataset()` 入口、本地静态 JSON。当前目录没有可复用前端。数据脚本使用 Node；单元验证计划用 Vitest，浏览器验证计划用 Playwright，不引入业务状态管理框架。
+采用 Vite + TypeScript + 原生 HTML/CSS，一个页面、一个 `loadDataset()` 入口、本地静态 JSON。初始目录没有可复用前端。数据脚本使用 Node；单元验证计划用 Vitest，浏览器验证计划用 Playwright，不引入业务状态管理框架。
 
 C0 查询记录：lightweight-charts 正式包 **5.2.1**；Vite **8.3.0**、TypeScript **7.0.2**、`@playwright/test` **1.63.0** 为查询时版本，均未安装到项目。Vite engines 为 `^20.19.0 || >=22.12.0`，本机 Node 22.22.2 满足。后续建立 package.json 时再固定兼容组合和锁文件，不用查询结果冒充已安装版本。
 
@@ -85,15 +85,15 @@ C0 查询记录：lightweight-charts 正式包 **5.2.1**；Vite **8.3.0**、Type
 
 ## 文件计划与阶段关卡
 
-当前仅创建 AGENTS、README 和 docs 下三份文档。后续按需创建，禁止为了目录图创建空文件：
+以下为阶段职责与文件划分；C1–C4实际实现已落地，完成证据以PROGRESS为准。不创建空模块：
 
 | 阶段 | 输入、计划文件/输出 | 验收与停止点 |
 | --- | --- | --- |
 | C0 约定 | 开发包/本机环境 → 五份最小文档 | 目录/Git/版本/官方接口检查与字段方案可审查；C0 已获确认，进入C1 |
 | C1 数据 | 获批契约 → `scripts/download-history.mjs`、`make-demo.mjs`、`validate-data.mjs`，`public/data/{history.json,forecast.demo.json,grids.demo.json}`，最小 package/锁文件、相关测试及下载收据 | 官方真实来源、冻结窗口/数量/原始哈希；数据关联验证、错误用例、同输入生成两次逐字节相同。未接图表，完成后报告 |
-| C2 真实K线 | C1通过 → `index.html`、`vite.config.ts`、`tsconfig.json`、`src/{main.ts,data.ts,chart.ts,styles.css}`、必要测试/许可证文件 | 127.0.0.1页面、真实来源/截止、K线交互和完整未来坐标支撑；类型/构建/浏览器截图。未画区间，停止报告 |
+| C2 真实K线 | C1通过 → `index.html`、`vite.config.ts`、`tsconfig.json`、`src/{main.ts,data.ts,chart.ts,styles.css}`、必要测试/许可证文件 | 127.0.0.1页面、真实来源/截止、K线交互和完整未来坐标支撑；类型/构建/浏览器截图。C2仅真实K线；技术通过继续C3 |
 | C3 路径与区间 | 固定三文件/C2 → `src/forecast-band.ts`、路径/分界/图例与相关测试 | 三条路径、内外带、阶段、全隐藏/纯未来/resize/DPR/价轴验证；技术通过继续C4，截图仍待用户最终视觉验收 |
-| C4 网格交互 | 已确认C3 → 按需 `src/controls.ts`、网格管理、窗口/重置/重载/错误处理 | 至少三套截图、20次切换、参数独立、坏数据和离线查看；不实现收益计算 |
+| C4 网格交互 | C3技术通过 → 按需 `src/controls.ts`、网格管理、窗口/重置/重载/错误处理 | 至少三套截图、20次切换、参数独立、坏数据和离线查看；不实现收益计算 |
 | C5 审查交付 | C1–C4结果 → 独立只读审查、范围内修复、README实测说明、`artifacts/`证据 | data/type/unit/e2e/build、干净依赖启动和停止、许可证/监听地址、截图人工复核；标为待用户视觉验收，不自动开始预测或更新 |
 
-每阶段记录真实命令与结果；授权以用户消息为准，本次已获 C1–C5 串行实施授权。2026-09-12 用户专项批准建立 GitHub 私有仓库、上传文档和创建任务；使用 `He1met/market-forecast-viewer` 与 Chart MVP 里程碑管理 C0–C5。Issue 创建或依赖完成不授予实施权限；本次之后不自动推送、合并或改变可见性。
+每阶段记录真实命令与结果；授权以用户消息为准，本次已获 C1–C5 串行实施授权。2026-09-12 用户专项批准建立 GitHub 私有仓库、上传文档和创建任务；使用 `He1met/market-forecast-viewer` 与 Chart MVP 里程碑管理 C0–C5。Issue 创建或依赖完成不授予实施权限；本次已授权推送feat/chart-mvp并维护一个Draft PR；不得合并或改变可见性。仓库当前实测PUBLIC，早期PRIVATE仅为历史记录。
