@@ -120,3 +120,11 @@ C1–C5 均带 `status:awaiting-approval`；每项含前置依赖、计划输出
 实际typecheck/build通过；真实浏览器2/2通过（1440×900 DPR1、1280×800 DPR2），检查彩色Canvas像素、缩放跨度改变、拖动平移、真实OHLC、纯未来坐标非空。已由实施者查看实际截图，用户视觉验收仍待C5。最初CSS声明/回调类型缺失已修复；首帧像素检查改为等待实际绘制，原100像素断言未降低。首轮失败记录保留。
 
 证据（本地）：`artifacts/c2/` 内typecheck.log、build.log、e2e.log、两个视口PNG与JSON，JSON含浏览器/视口/DPR/时区、dataset_id、HEAD和实际源码文件哈希。Playwright启动dev且结束后停止，由strictPort限定127.0.0.1。正式Draft PR为 #7。下一步C3（已授权）：多路径、primitive区间与分界及缩放/DPR验证，技术通过继续C4。
+
+### C3 技术通过，视觉确认延后
+
+三条固定DEMO路径、内外示意区间、阶段文字、历史/未来分界、独立路径开关和未来数值悬停已实现。primitive在实际绘制时使用公开时间/价格坐标，在media坐标空间裁切；所有系列共用right，支撑不进图例或tooltip，Normal十字线。可见数据及边界插值用于autoscale。
+
+实际typecheck/build通过；浏览器8/8通过：1440×900、1280×800各DPR1/2，实际横向缩放/平移、右价轴拖动、同页面resize、97个绘制顶点/96未来点坐标误差≤1 CSS像素、全路径隐藏与纯未来区间尺度。实施者已查看默认路径/区间和全隐藏纯未来PNG，未替用户做视觉验收，未建立批准回归基线。
+
+本地证据 `artifacts/c3/`：e2e/typecheck/build日志，paths-bands、zoom-price-scale、all-hidden-future各视口截图及JSON（含浏览器/视口/DPR/时区/dataset_id/图层诊断/截图SHA），code-receipt.json含准确源码哈希。下一步C4（已授权）：网格方案、窗口/重载/错误恢复、20次切换和离线验证。
