@@ -10,7 +10,7 @@
     "data:download": "tsx scripts/download-history.mjs",
     "demo:generate": "tsx scripts/make-demo.mjs",
     "data:validate": "tsx scripts/validate-data.mjs",
-    "test": "vitest run tests/data.test.ts",
+    "test": "vitest run tests/data.test.ts tests/demo-explanation.test.ts",
     "typecheck": "tsc --noEmit",
     "dev": "vite --host 127.0.0.1 --port 5173 --strictPort",
     "build": "tsc --noEmit && vite build",

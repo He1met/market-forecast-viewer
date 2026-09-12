@@ -4,6 +4,18 @@
 
 下方C0/建仓记录属于历史，当前结果见各阶段交接段。
 
+## 2026-09-13 #9 自然定时试点：工程实现与验证
+
+本轮由官方 chart-mvp 定时任务触发，trigger=scheduled，run_id=MFV-SCHEDULED-20260913-01a0967b-01，task_version=1；claim_base_sha=b6b853d394e01ffe852b619caa66a8d06b508e01。主checkout feat/chart-mvp起点clean；其他项目任务观察为idle，原子锁取得成功，#8 bootstrap检查点与handoff哈希匹配。持锁联网sync真实返回PILOT_READY，核验正式review5187124672、#9正文哈希与依赖后只领取#9；旧initial_state与旧标签操作文字按最新W0解释，执行者不修改GitHub标签。
+
+新增图例旁常驻固定DEMO/概率未计算说明与键盘可展开“生成依据”。描述、版本、source_kind、seed、锚点读取已校验文件；仅识别实际fixture-v1算法，未知版本保守说明。网格显示文件参数来源、相对锚点上下界百分比、上/下/等锚点价格线数量，以及独立的完整区间/跨锚点计数；方向仅是标签，未模拟底仓、未生成实际订单。数值比较使用文件精确值，不改变契约容差；坏文件清除失效说明/统计。未改三文件契约、生成器、价格或图表架构。
+
+实际验证：npm run typecheck通过；npm test为59/59（原43项加16项统计/未知版本检查）；npm run build通过。首次CHART_STAGE=m01 npm run test:e2e因127.0.0.1:5173既有服务明确退出，未停止该服务。随后以LOCAL_ONLY配置执行CHART_STAGE=m01 npm run test:e2e -- --config artifacts/m01/playwright.config.ts，测试服务仅127.0.0.1:5174且strictPort，36/36通过，结束后释放测试端口。由于新增说明影响主页面布局，复用全部28项既有浏览器交互检查并增加8项说明/统计/降级检查，覆盖1440×900、1280×800各DPR1/2；Canvas坐标/像素、横纵缩放、纯未来、切换、生命周期、离线与错误恢复仍通过。三份数据字节SHA前后一致，无行情下载或文件重生成。
+
+LOCAL_ONLY证据在artifacts/m01：typecheck.log、unit.log、build.log、e2e.log（端口冲突）、e2e-5174.log、e2e-results.json、data-hashes.json、各视口PNG及收据。已查看1280默认/展开实际截图：短说明常驻，展开流式布局无覆盖，主图高度保留；未标为用户批准基线。精确tested文件SHA/归档步骤另记executor receipt与handoff，最终head以Git/handoff为准；文档不自引用提交哈希。
+
+本轮runtime明确danger-full-access/never，实际锁、工作区写入与只读联网已通过；commit/push/PR逐字回读结果由handoff分别记录，不能由配置推断。运行期间用户要求最高推理强度，官方任务配置回读已为gpt-6-astra/ultra；不声称当前回合热切换已验证。当前工程测试通过，待按同一锁归档回报；唯一下一步为ChatGPT对#9提交的工程审查，下一自然轮读取并确认反馈。用户视觉验收仍未通过；完整自然执行→审查→确认闭环仍待后续回执，#8不关闭。
+
 ## 2026-09-13 在线队列同步（当前）
 
 用户最新授权定时器自行联网；仅#8流程改造，#9保留自然实施。起点HEAD=b40967d425bf5e461ff72f034cc1624bae16aae2、clean；持有manual_setup锁，监督任务不写工作区。旧本地inbox仍blocked是缓存过时，不能描述为当前远端状态。
