@@ -36,6 +36,14 @@ LOCAL_ONLY证据：artifacts/w0/unit.log、manual-receipt.json、automation-read
 
 
 
+### W0设置提交与报告实际回读
+
+- 设置提交 `ef1e5643f6f3c81c60dfcf6d8f26ad4f3ae74e6d` 已推送feat/chart-mvp并由ls-remote核对一致，提交后工作区clean；main未变。7/7专项测试通过后辅助代码哈希未变，未以随后文档提交冒充新增测试。
+- PR设置报告 report_id=`MFV-W0-SETUP-20260912-01`，comment_id=`5646791809`，[报告链接](https://github.com/He1met/market-forecast-viewer/pull/7#issuecomment-5646791809)。2026-09-12T15:22:05.619Z完成GET逐字回读；正文SHA-256 `559df49dcd40f1604bab171528377d06756643e392c2afdfaae51bd3a4a86927`，收据artifacts/w0/report-receipt.json。
+- 本轮手动收据SHA-256 `2a3f39819a72b3ae3405a54412740faf46a0e4cd55afaec4b4962ecefbe6847d`；官方配置回读文件SHA-256 `ac98e7b95602d3abb67de974c07df2442b764852ad06bcf7d9484294d897e3b8`。证据原文LOCAL_ONLY。
+- #8已写简要交接并转status:blocked（权限门禁）；#9已写等待配置审查的说明，保持queue:codex + status:blocked，两条Issue留言均GET逐字回读通过。未关闭Issue、未宣称配置通过或自然执行通过。
+- 本段为报告发布后的安全检查点文档回执，单独提交，不改变设置报告绑定的实现SHA。最终HEAD以Git为准；最终检查点采用bootstrap_handoff，不能由定时器重新实施#8。安全结束后仅释放本run的锁，保留检查点与本地证据；任务继续PAUSED。
+
 ## 2026-09-12 研发巡检设置（历史；已被 W0 原位改造并暂停）
 
 用户专项授权官方每小时“Chart MVP 进度巡检”，只读本项目与既有证据，通过现有 PR #7 脱敏报告和读取监督反馈；这是研发流程例外，不是行情自动更新或第二个代码写入者。唯一实施者在本次安全检查点更新 AGENTS/PROGRESS；业务代码、三份行情/DEMO文件、原始开发包保持不变。
