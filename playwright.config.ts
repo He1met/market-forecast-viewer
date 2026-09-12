@@ -1,0 +1,2 @@
+import{defineConfig}from'@playwright/test';
+export default defineConfig({testDir:'tests/e2e',timeout:30000,fullyParallel:false,workers:1,reporter:[['list'],['json',{outputFile:'artifacts/e2e-results.json'}]],use:{baseURL:'http://127.0.0.1:5173',timezoneId:'Asia/Shanghai',trace:'retain-on-failure'},projects:[{name:'1440-dpr1',use:{viewport:{width:1440,height:900},deviceScaleFactor:1}},{name:'1280-dpr2',use:{viewport:{width:1280,height:800},deviceScaleFactor:2}}],webServer:{command:'npm run dev',url:'http://127.0.0.1:5173',reuseExistingServer:false,timeout:20000}});

@@ -1,0 +1,22 @@
+import{createChart,CandlestickSeries,LineSeries,CrosshairMode,ColorType,PriceScaleMode,type IChartApi,type ISeriesApi,type Time,type UTCTimestamp}from'lightweight-charts';
+import type{History,Forecast}from'./contracts';
+export const utc=(t:number)=>t as UTCTimestamp;
+export const colors=['#f0bd6c','#8cb8ff','#70ddbc'];
+export class WeatherChart {
+ readonly chart:IChartApi;readonly candles:ISeriesApi<'Candlestick'>;readonly support?:ISeriesApi<'Line'>;
+ readonly h:History;readonly f?:Forecast;zone=Intl.DateTimeFormat().resolvedOptions().timeZone;hours=24;
+ private hover:(t:number|undefined)=>void;
+ constructor(container:HTMLElement,h:History,f:Forecast|undefined,onHover:(t:number|undefined)=>void){this.h=h;this.f=f;this.chart=createChart(container,{autoSize:true,layout:{background:{type:ColorType.Solid,color:'#111d2c'},textColor:'#94a7bc',fontFamily:'-apple-system, BlinkMacSystemFont, sans-serif',fontSize:11,attributionLogo:true},grid:{vertLines:{color:'#213043'},horzLines:{color:'#213043'}},crosshair:{mode:CrosshairMode.Normal,vertLine:{color:'#9eafc5'},horzLine:{color:'#9eafc5'}},rightPriceScale:{mode:PriceScaleMode.Normal,borderColor:'#334357',scaleMargins:{top:.16,bottom:.12}},timeScale:{timeVisible:true,secondsVisible:false,borderColor:'#334357',rightOffset:3},handleScroll:true,handleScale:true});
+ this.candles=this.chart.addSeries(CandlestickSeries,{priceScaleId:'right',upColor:'#56bea6',downColor:'#eb8290',wickUpColor:'#56bea6',wickDownColor:'#eb8290',borderVisible:false,priceLineVisible:false,lastValueVisible:false});this.candles.setData(h.candles.map(c=>({time:utc(c.open_time),open:c.open,high:c.high,low:c.low,close:c.close})));
+ if(f){this.support=this.chart.addSeries(LineSeries,{priceScaleId:'right',visible:true,lineVisible:false,pointMarkersVisible:false,lastValueVisible:false,priceLineVisible:false,crosshairMarkerVisible:false,lastPriceAnimation:0,autoscaleInfoProvider:()=>({priceRange:this.autoscale()})});this.support.setData([...h.candles.map(c=>({time:utc(c.open_time),value:c.close})),{time:utc(f.anchor_time),value:f.anchor_price},...f.bands.points.map(b=>({time:utc(b.time),value:(b.inner_lower+b.inner_upper)/2}))]);}
+ this.hover=t=>onHover(t);this.chart.subscribeCrosshairMove(this.onCrosshair);this.setTimezone(this.zone);this.reset();
+ }
+ private onCrosshair=(p:{time?:unknown})=>this.hover(typeof p.time==='number'?p.time:undefined);
+ protected autoscale(){const range=this.chart.timeScale().getVisibleRange();const from=range?Number(range.from):this.h.start_time,to=range?Number(range.to):Infinity;const values=this.h.candles.filter(c=>c.open_time>=from&&c.open_time<=to).flatMap(c=>[c.low,c.high]);if(this.f)values.push(this.f.anchor_price*.98,this.f.anchor_price*1.04);return{minValue:Math.min(...values),maxValue:Math.max(...values)};}
+ format(t:number,full=false){return new Intl.DateTimeFormat('zh-CN',{timeZone:this.zone,month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false,...full?{year:'numeric'}:{}}).format(new Date(t*1000));}
+ setTimezone(zone:string){this.zone=zone;this.chart.applyOptions({localization:{timeFormatter:(t:Time)=>this.format(Number(t),true)},timeScale:{tickMarkFormatter:(t:Time)=>this.format(Number(t))}});}
+ reset(){this.chart.priceScale('right').applyOptions({autoScale:true});const end=this.f?this.f.anchor_time+this.hours*3600:this.h.end_time-900;this.chart.timeScale().setVisibleRange({from:utc(this.h.end_time-48*3600),to:utc(end)});}
+ setRange(from:number,to:number){this.chart.timeScale().setVisibleRange({from:utc(from),to:utc(to)});}
+ diagnostics(){return{historyCount:this.candles.data().length,historyLastTime:Number(this.candles.data().at(-1)?.time),supportCount:this.support?.data().length??0,range:this.chart.timeScale().getVisibleLogicalRange(),visibleTime:this.chart.timeScale().getVisibleRange(),priceWidth:this.chart.priceScale('right').width(),anchor:this.f?.anchor_time,futureEnd:this.f?this.f.anchor_time+this.f.horizon_seconds:undefined,anchorX:this.f?this.chart.timeScale().timeToCoordinate(utc(this.f.anchor_time)):null,priceY:this.f?this.support?.priceToCoordinate(this.f.anchor_price):null,priceY2:this.f?this.support?.priceToCoordinate(this.f.anchor_price*1.01):null,canvasCount:document.querySelectorAll('#chart canvas').length,subscriptions:1};}
+ destroy(){this.chart.unsubscribeCrosshairMove(this.onCrosshair);this.chart.remove();}
+}

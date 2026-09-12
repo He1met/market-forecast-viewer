@@ -112,3 +112,11 @@ C1–C5 均带 `status:awaiting-approval`；每项含前置依赖、计划输出
 实际检查：data:download成功；demo:generate成功；data:validate原始重建/字节复现通过；npm test 42/42通过；typecheck通过；npm audit 0项；既有快照保护检查成功（预期exit1、原文件SHA不变、未再次请求行情）。最初一项测试仅误匹配错误文字，已修正为精确中文错误且保留初次失败日志。只读复核发现并修复了首页截止/分页/请求时间收据校验以及发布后错误文案，未重复下载。
 
 本地证据：`artifacts/c1/{download,generation,validation}.json`、`unit.log`、`typecheck.log`、`existing-snapshot-guard.json`、`npm-audit.json`、`code-receipt.json`。精确代码文件SHA由code-receipt保存，阶段代码commit以该节对应Git提交为准；当前分支feat/chart-mvp。用户页面验收未发生。下一步C2（已授权）：固定图表/浏览器依赖，真实K线与未来坐标，技术通过后继续C3。
+
+### C2 技术通过
+
+固定安装 lightweight-charts5.2.1 / fancy-canvas2.1.0 / Vite8.3.0 / Playwright1.63.0，已核对实际typings。安装匹配Chromium Headless Shell revision1243（153.0.8010.12），保留其他缓存。真实K线、96未来节点与锚点数值支撑、共用右轴、Normal十字线、来源/时区/截止提示已实现；没有在C2绘制未来路径或区间。
+
+实际typecheck/build通过；真实浏览器2/2通过（1440×900 DPR1、1280×800 DPR2），检查彩色Canvas像素、缩放跨度改变、拖动平移、真实OHLC、纯未来坐标非空。已由实施者查看实际截图，用户视觉验收仍待C5。最初CSS声明/回调类型缺失已修复；首帧像素检查改为等待实际绘制，原100像素断言未降低。首轮失败记录保留。
+
+证据（本地）：`artifacts/c2/` 内typecheck.log、build.log、e2e.log、两个视口PNG与JSON，JSON含浏览器/视口/DPR/时区、dataset_id、HEAD和实际源码文件哈希。Playwright启动dev且结束后停止，由strictPort限定127.0.0.1。正式Draft PR为 #7。下一步C3（已授权）：多路径、primitive区间与分界及缩放/DPR验证，技术通过继续C4。
