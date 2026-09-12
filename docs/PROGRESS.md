@@ -1,8 +1,20 @@
 # 开发进度与证据
 
-当前状态：C0基线已由用户确认，C1–C4技术通过，C5工程验证和独立审查均已通过，最终停在“工程交付，待用户视觉验收”。已收到用户可理解性反馈，尚未通过用户视觉验收。当前分支feat/chart-mvp，Draft PR #7；原始数据/截图留在本地。
+当前状态：M0/C1–C5与#9工程通过，用户五项视觉验收已通过，#9审查已自然轮确认。用户2026-09-13进一步批准现有定时任务执行本项目所有开发任务，不限制M1或Issue编号；当前进行通用执行范围优化与一次手动领取验证。feat/chart-mvp、PR #7，原始数据/截图留本地。
 
 下方C0/建仓记录属于历史，当前结果见各阶段交接段。
+
+## 2026-09-13 通用开发定时任务优化
+
+本次用户明确要求解除旧范围限制、优化后执行一次检查领取，并补充“不要只针对M1优化，这个定时任务可以执行所有开发任务”。已将AGENTS收敛为项目通用规则，移除旧W0/M0阶段限制与过时#9状态；M0数据契约及全部快照不改。
+
+executor不再硬编码pilotApproval、#9正文SHA或chart-mvp-comprehensibility。sync使用完整分页Issues、全仓Issue评论（含closed前置和PR对话）、PR #7正式reviews/元数据，双读快照后交官方Codex全文核验；verify-release再次读取并绑定源身份、版本/正文、依赖和远端SHA，成功才生成本轮project-development资格。非ready、未通过语义依赖、伪造来源、变化/失败/过期快照均不得领取；REQUIRES_EVIDENCE_REVIEW不再误写为人工审批门禁。持久acknowledged账本迁移旧检查点，避免旧任务重新ready后重领；所有返回状态区分归档、审查与阻塞。
+
+实际专项验证：node --test tests/executor.test.mjs为17/17 PASS，覆盖任意后续阶段编号、真实旧确认迁移、closed数字前置、来源/版本/依赖、变更/撤回/远端HEAD、失效缓存、单写入及同轮重复领取。首次15/16失败保留于LOCAL_ONLY日志，原因是fixture数组被同步函数原位扩大；改用独立快照后通过。独立Codex只读审查发现并复核修复三项P2，最终无新增P1/P2阻塞；审查者未亲自重跑测试。图表/数据/依赖未改，不重跑图表全套。
+
+官方automation_update已原位更新chart-mvp，ACTIVE/每小时/Local/同项目、gpt-6-astra/ultra保持，实际权限danger-full-access/never未改。新正文覆盖所有项目开发任务，保留任务技术条件、单写入/恢复、自动归档与通知去重。官方回读与本地automation.toml一致，配置正文SHA及前后记录在artifacts/queue-opt；不新建定时器，不启用两小时业务任务。
+
+本轮持manual_setup锁，原#9 acknowledged及handoff已备份，起点11bae1adb87c5729fd41792151737bccd400cd16、clean。真实通用sync返回33项来源，唯一待核验候选#11 v1/P0，#12–#14仍blocked。先完成本维护提交及HEAD交接，再以manual触发执行同一sync→verify-release→queue→claim流程；实际领取结果后续追加，不能把手动验证说成自然调度。LOCAL_ONLY证据在artifacts/queue-opt。
 
 ## 2026-09-13 #9 自然定时试点：工程实现与验证
 

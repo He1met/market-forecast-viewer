@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { context, acquire, release, saveCheckpoint, recovery, queueCandidates, issueStamp, localQueue, claim, receipt, syncInbox, sha } from '../scripts/executor.mjs';
+import { context, acquire, release, saveCheckpoint, recovery, queueCandidates, issueStamp, localQueue, claim, receipt, syncInbox, verifyRelease, remoteDigest, sha } from '../scripts/executor.mjs';
 
 function fixture(t) {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'mfv-w0-test-'));
@@ -67,7 +67,7 @@ function issue(number, priority = 'P1', labels = ['queue:codex', 'status:ready']
     updated_at: '2026-09-12T00:00:00Z', body: `- execution_kind: queue_task\n- priority: ${priority}\n- task_version: 1\n` };
 }
 test('queue excludes bootstrap, blocked, closed, PRs, conflicting labels and malformed metadata', () => {
-  const input = [issue(8), issue(9, 'P1', ['queue:codex', 'status:blocked']),
+  const input = [{ ...issue(8), body: '- execution_kind: bootstrap\n- task_version: 1\n' }, issue(9, 'P1', ['queue:codex', 'status:blocked']),
     { ...issue(10), state: 'closed' }, { ...issue(11), pull_request: {} },
     issue(12, 'P0', ['queue:codex', 'status:ready', 'status:blocked']),
     { ...issue(13), body: 'future roadmap' }];
@@ -84,9 +84,17 @@ function inbox(c, tasks = [issue(9)]) {
   fs.mkdirSync(c.base, { recursive: true });
   const data = { schema: 'MFV:INBOX:v1', repo: 'He1met/market-forecast-viewer', sync_id: 'fixture',
     synced_at: new Date(Date.now() - 1000).toISOString(), expires_at: new Date(Date.now() + 3600000).toISOString(),
-    issues: tasks, reviews: [], releases: tasks.map(task => ({ ...issueStamp(task), approved: true,
-      dependencies_satisfied: true, branch: 'feat/chart-mvp', scope: 'chart-mvp-comprehensibility',
-      review_id: 'fixture-only', source_comment_url: 'https://github.com/example/fixture', gate: 'configuration_ready' })) };
+    sync_run_id: 'fixture-run', remote_head_sha: 'fixture-head',
+    issues: tasks, reviews: [{ user: { id: 65616876 }, html_url: 'fixture/source', body: 'fixture only' }], releases: [] };
+  data.remote_snapshot_sha256 = remoteDigest(data);
+  data.releases = tasks.map(task => {
+    const evidence = { ...issueStamp(task), run_id: data.sync_run_id, sync_id: data.sync_id,
+      remote_snapshot_sha256: data.remote_snapshot_sha256, scope: 'project-development',
+      review_id: 'fixture-only', source_comment_url: 'fixture/source', source_body_sha256: sha('fixture only') };
+    const evidence_sha256 = sha(JSON.stringify(evidence));
+    fs.writeFileSync(path.join(c.base, `release-review-${evidence_sha256}.json`), JSON.stringify(evidence));
+    return { ...evidence, approved: true, dependencies_satisfied: true, branch: 'feat/chart-mvp', evidence_sha256 };
+  });
   const write = () => fs.writeFileSync(path.join(c.base, 'inbox.json'), JSON.stringify(data));
   write(); return { data, write };
 }
@@ -113,7 +121,7 @@ test('local claim binds one task, resumes exact checkpoint and waits at handoff 
   assert.equal(claim(c, 'next').status, 'RESUMED');
   receipt(c, 'next', { issue_number: 9, phase: 'awaiting_handoff', tests: [{ command: 'fixture assertion', result: 'pass' }], next_step: 'interactive review/commit' });
   release(c, 'next'); acquire(c, { ...owner('later'), issue_number: 0 });
-  assert.equal(claim(c, 'later').status, 'WAITING_INTERACTIVE_HANDOFF');
+  assert.equal(claim(c, 'later').status, 'AWAITING_HANDOFF');
 });
 test('legacy lock blocks migration; foreign dirty workspace blocks a locally released task', t => {
   const { c } = fixture(t); fs.mkdirSync(c.legacyLock, { recursive: true });
@@ -123,28 +131,38 @@ test('legacy lock blocks migration; foreign dirty workspace blocks a locally rel
   assert.equal(claim(c, 'first').status, 'FOREIGN_DIRTY');
 });
 
-function onlineFixture() {
-  const task = { ...issue(9), user: { id: 1 }, issue_dependencies_summary: { blocked_by: 0 } };
-  const gate = { id: 2, user: { id: 1 }, state: 'COMMENTED', body: 'fixture approved pilot',
+function onlineFixture(number = 11) {
+  const task = { ...issue(number), user: { id: 65616876 }, issue_dependencies_summary: { blocked_by: 0 } };
+  const gate = { id: 2, user: { id: 65616876 }, state: 'COMMENTED',
+    body: '<!-- MFV:SUPERVISOR:v1 -->\n- review_id: fixture-approved\nOnly the described task is approved.',
     commit_id: 'base', submitted_at: '2026-09-12T00:00:00Z', html_url: 'review/2' };
   const pr = { state: 'open', head: { ref: 'feat/chart-mvp', sha: 'head', repo: { full_name: 'He1met/market-forecast-viewer' } } };
-  const approval = { issue: 9, version: 1, author: 1, body: sha(task.body), review: 2, reviewBody: sha(gate.body), head: 'base' };
+  const tasks = [task];
   const comments = [];
-  const get = endpoint => endpoint.startsWith('issues?') ? [task]
-    : endpoint === 'issues/9' ? [task]
+  const get = endpoint => endpoint.startsWith('issues?') ? tasks
     : endpoint.startsWith('pulls/7/reviews') ? [gate]
     : endpoint === 'pulls/7' ? [pr] : comments;
-  return { task, gate, approval, get, comments };
+  const evidence = c => {
+    const i = JSON.parse(fs.readFileSync(path.join(c.base, 'inbox.json')));
+    return { schema: 'MFV:RELEASE_REVIEW:v1', ...issueStamp(task), sync_id: i.sync_id,
+      remote_snapshot_sha256: i.remote_snapshot_sha256, decision: 'approved', scope: 'project-development',
+      review_id: 'fixture-approved', source_comment_url: gate.html_url, source_body_sha256: sha(gate.body),
+      checks: Object.fromEntries(['scope', 'release', 'dependencies', 'latest_decisions'].map(k =>
+        [k, { passed: true, reason: `Fixture-only ${k} verification` }])) };
+  };
+  return { task, tasks, gate, pr, get, comments, evidence };
 }
-test('online sync admits verified pilot, deduplicates reviews, rejects forged gate and changed task', t => {
+test('sync only collects evidence; reviewed development task is admitted without pilot or phase IDs', t => {
   const { c } = fixture(t); acquire(c, owner()); const x = onlineFixture();
-  assert.equal(syncInbox(c, 'first', x.get, x.approval).gate_result, 'PILOT_READY');
+  assert.equal(syncInbox(c, 'first', x.get).gate_result, 'REQUIRES_EVIDENCE_REVIEW');
+  assert.equal(localQueue(c).candidates.length, 0);
+  assert.deepEqual(verifyRelease(c, 'first', x.evidence(c), x.get).candidates.map(x => x.issue_number), [11]);
   x.comments.push({ id: 3, html_url: 'comment/3', body: 'plain comment' });
-  assert.equal(syncInbox(c, 'first', x.get, x.approval).review_count, 2);
-  x.gate.user.id = 7;
-  assert.equal(syncInbox(c, 'first', x.get, x.approval).candidates.length, 0);
-  x.gate.user.id = 1; x.task.body += 'new scope';
-  assert.equal(syncInbox(c, 'first', x.get, x.approval).candidates.length, 0);
+  assert.equal(syncInbox(c, 'first', x.get).review_count, 2);
+  // Another stage/number uses exactly the same code and full evidence review.
+  x.task.number = 42; x.task.body += '- phase: FUTURE\n';
+  syncInbox(c, 'first', x.get);
+  assert.deepEqual(verifyRelease(c, 'first', x.evidence(c), x.get).candidates.map(x => x.issue_number), [42]);
 });
 test('failed or inconsistent online sync invalidates old ready; scheduled claim requires same-run sync', t => {
   const { c } = fixture(t); inbox(c); acquire(c, { ...owner(), issue_number: 0, trigger: 'scheduled' });
@@ -152,16 +170,85 @@ test('failed or inconsistent online sync invalidates old ready; scheduled claim 
   assert.throws(() => syncInbox(c, 'first', () => { throw Error('network down'); }), /network down/);
   assert.equal(localQueue(c).status, 'INVALID_OR_EXPIRED_INBOX');
   const x = onlineFixture();
-  assert.throws(() => syncInbox(c, 'first', endpoint => endpoint === 'issues/9'
-    ? [{ ...x.task, updated_at: 'changed' }] : x.get(endpoint), x.approval), /REMOTE_CHANGED/);
+  let reads = 0;
+  assert.throws(() => syncInbox(c, 'first', endpoint => endpoint.startsWith('issues?') && ++reads > 1
+    ? [{ ...x.task, updated_at: 'changed' }] : x.get(endpoint)), /REMOTE_CHANGED/);
   assert.equal(localQueue(c).candidates.length, 0);
 });
-test('newer supervisor decision and unsatisfied dependencies prevent stale approval reuse', t => {
+test('source identity, reviewed version, dependency semantics and real blocked_by are required', t => {
   const { c } = fixture(t); acquire(c, owner()); const x = onlineFixture();
+  x.gate.user.id = 7; syncInbox(c, 'first', x.get);
+  assert.throws(() => verifyRelease(c, 'first', x.evidence(c), x.get), /UNTRUSTED_RELEASE_SOURCE/);
+  x.gate.user.id = 65616876; syncInbox(c, 'first', x.get);
+  const stale = x.evidence(c); stale.task_version = 2;
+  assert.throws(() => verifyRelease(c, 'first', stale, x.get), /TASK_NOT_ELIGIBLE/);
+  syncInbox(c, 'first', x.get);
+  const dependencies = x.evidence(c); dependencies.checks.dependencies.passed = false;
+  assert.throws(() => verifyRelease(c, 'first', dependencies, x.get), /SEMANTIC_REVIEW_REQUIRED/);
+  syncInbox(c, 'first', x.get);
+  const scope = x.evidence(c); scope.scope = 'arbitrary-account-actions';
+  assert.throws(() => verifyRelease(c, 'first', scope, x.get), /INVALID_RELEASE_REVIEW/);
   x.task.issue_dependencies_summary.blocked_by = 1;
-  assert.equal(syncInbox(c, 'first', x.get, x.approval).candidates.length, 0);
-  x.task.issue_dependencies_summary.blocked_by = 0;
-  x.comments.push({ user: { id: 1 }, html_url: 'comment/4', updated_at: '2026-09-13T00:00:00Z',
-    body: '<!-- MFV:SUPERVISOR:v1 -->\n- issue_number: `9`\n- status: STOP' });
-  assert.equal(syncInbox(c, 'first', x.get, x.approval).candidates.length, 0);
+  syncInbox(c, 'first', x.get);
+  assert.throws(() => verifyRelease(c, 'first', x.evidence(c), x.get), /TASK_NOT_ELIGIBLE/);
+});
+
+test('new veto, changed parent, remote head or failed verification invalidate all old ready', t => {
+  const { c } = fixture(t); acquire(c, owner()); const x = onlineFixture();
+  const parent = { ...issue(10), body: 'stage definition', labels: [], state: 'closed' };
+  x.task.body += 'Parent #10'; x.tasks.push(parent);
+  for (const mutate of [() => x.comments.push({ html_url: 'new/veto', body: 'STOP', user: { id: 65616876 } }),
+    () => { parent.body += ' changed'; }, () => { x.pr.head.sha += 'x'; }]) {
+    syncInbox(c, 'first', x.get); const evidence = x.evidence(c); mutate();
+    assert.throws(() => verifyRelease(c, 'first', evidence, x.get), /REMOTE_CHANGED/);
+    assert.equal(localQueue(c).status, 'INVALID_OR_EXPIRED_INBOX');
+  }
+  syncInbox(c, 'first', x.get); const evidence = x.evidence(c);
+  assert.throws(() => verifyRelease(c, 'first', evidence, () => { throw Error('network down'); }), /network down/);
+  assert.equal(localQueue(c).candidates.length, 0);
+});
+
+test('acknowledged tasks are not reclaimed, including after another task becomes the checkpoint', t => {
+  const { c } = fixture(t); acquire(c, owner());
+  // A real legacy checkpoint predates acknowledged.json. Do not create it via the new helper.
+  fs.writeFileSync(c.state, JSON.stringify({ ...issueStamp(issue(9)), phase: 'acknowledged', next_step: 'next task' }));
+  assert.equal(fs.existsSync(path.join(c.base, 'acknowledged.json')), false);
+  release(c, 'first'); acquire(c, { ...owner('next'), issue_number: 0 });
+  inbox(c, [issue(9), issue(11)]);
+  assert.equal(claim(c, 'next').checkpoint.issue_number, 11);
+  assert.throws(() => claim(c, 'next'), /ONE_ISSUE_PER_RUN/);
+  saveCheckpoint(c, 'next', { ...issueStamp(issue(11)), phase: 'acknowledged', next_step: 'next task' });
+  release(c, 'next'); acquire(c, { ...owner('later'), issue_number: 0 });
+  inbox(c, [issue(9), issue(11)]);
+  assert.equal(claim(c, 'later').status, 'EMPTY_QUEUE');
+});
+
+test('repository comments include closed numeric prerequisites and failed re-review invalidates ready', t => {
+  const { c } = fixture(t); acquire(c, owner()); const x = onlineFixture(42);
+  x.task.body += '- parent_issue: 10\n- depends_on: 20\n';
+  x.tasks.push({ ...issue(10), state: 'closed' }, { ...issue(20), state: 'closed' });
+  x.comments.push({ id: 30, html_url: 'closed/20/comment/30', body: 'dependency review', user: { id: 65616876 } });
+  const endpoints = [];
+  const get = endpoint => { endpoints.push(endpoint); return x.get(endpoint); };
+  syncInbox(c, 'first', get);
+  assert.ok(endpoints.includes('issues/comments?per_page=100'));
+  assert.ok(JSON.parse(fs.readFileSync(path.join(c.base, 'inbox.json'))).reviews.some(r => r.id === 30));
+  const evidence = x.evidence(c); verifyRelease(c, 'first', evidence, get);
+  assert.equal(localQueue(c).status, 'LOCAL_READY');
+  evidence.checks.dependencies.passed = false;
+  assert.throws(() => verifyRelease(c, 'first', evidence, get), /SEMANTIC_REVIEW_REQUIRED/);
+  assert.equal(localQueue(c).status, 'INVALID_OR_EXPIRED_INBOX');
+});
+
+test('release proof tampering or another run sync cannot authorize a scheduled claim', t => {
+  const { c } = fixture(t); acquire(c, { ...owner(), issue_number: 0, trigger: 'scheduled' });
+  const x = onlineFixture(); syncInbox(c, 'first', x.get);
+  const verified = verifyRelease(c, 'first', x.evidence(c), x.get);
+  assert.equal(localQueue(c).status, 'LOCAL_READY');
+  fs.appendFileSync(verified.evidence_path, ' '); // JSON whitespace does not change reviewed semantic bytes.
+  const proof = JSON.parse(fs.readFileSync(verified.evidence_path)); proof.decision = 'denied';
+  fs.writeFileSync(verified.evidence_path, JSON.stringify(proof));
+  assert.equal(localQueue(c).status, 'EMPTY_QUEUE');
+  release(c, 'first'); acquire(c, { ...owner('next'), issue_number: 0, trigger: 'scheduled' });
+  assert.equal(claim(c, 'next').status, 'FRESH_SYNC_REQUIRED');
 });

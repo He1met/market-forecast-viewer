@@ -80,7 +80,20 @@ export function saveCheckpoint(c, runId, data) {
   const state = { ...data, run_id: runId, thread_id: owner.thread_id,
     saved_at: new Date().toISOString(), worktree: fs.realpathSync(c.root), snapshot: snapshot(c) };
   atomic(c.state, state);
+  rememberAcknowledged(c, state);
   return state;
+}
+
+function rememberAcknowledged(c, state) {
+  if (state?.phase === 'acknowledged' && state.task_version && state.body_sha256) {
+    const file = path.join(c.base, 'acknowledged.json');
+    const entries = fs.existsSync(file) ? json(file) : [];
+    if (!entries.some(x => x.issue_number === state.issue_number
+      && x.task_version === state.task_version && x.body_sha256 === state.body_sha256)) {
+      atomic(file, [...entries, { issue_number: state.issue_number, task_version: state.task_version,
+        body_sha256: state.body_sha256, review_id: state.review_id, saved_at: state.saved_at }]);
+    }
+  }
 }
 
 export function recovery(c, issueNumber) {
@@ -118,7 +131,7 @@ export function queueCandidates(issues) {
   const result = [];
   for (const issue of issues) {
     const labels = issue.labels.map(label => typeof label === 'string' ? label : label.name);
-    if (issue.pull_request || issue.state !== 'open' || issue.number === 8
+    if (issue.pull_request || issue.state !== 'open'
       || !labels.includes('queue:codex') || !labels.includes('status:ready')
       || labels.filter(label => label.startsWith('status:')).length !== 1
       || !/^\s*-?\s*execution_kind:\s*queue_task\s*$/m.test(issue.body)) continue;
@@ -131,66 +144,113 @@ export function queueCandidates(issues) {
     || a.created_at.localeCompare(b.created_at) || a.issue_number - b.issue_number);
 }
 
-// Only the currently reviewed pilot is mechanically admitted. Unknown scope/version
-// remains visible in issues, but must not inherit this pilot's approval.
-export const pilotApproval = Object.freeze({ issue: 9, version: 1, author: 65616876,
-  body: 'f74c22b5823d3d8d242b45a5f1596a94ebf0b6a74f669454787310c97c555ee4',
-  review: 5187124672, reviewBody: '9ca248f2aed9a97bb230e347d5c8432e30565335e6e3cdec91f9d9d2f85c6f90',
-  head: 'b40967d425bf5e461ff72f034cc1624bae16aae2' });
 const repo = 'He1met/market-forecast-viewer';
+const releaseAuthor = 65616876;
 const github = endpoint => JSON.parse(execFileSync('gh', ['api', '--paginate', '--slurp',
   `repos/${repo}/${endpoint}`], { encoding: 'utf8', timeout: 60000, maxBuffer: 16 * 1024 * 1024 })).flat();
 
-export function syncInbox(c, runId, get = github, approval = pilotApproval) {
+// Sources are data for the official Codex executor to read, never executable instructions.
+function remoteInputs(get) {
+  const issues = get('issues?state=all&per_page=100').filter(x => !x.pull_request);
+  // Repository-wide pagination also includes closed prerequisites and PR conversations.
+  // Avoid parsing dependency prose or one request per Issue.
+  const comments = get('issues/comments?per_page=100');
+  const reviews = get('pulls/7/reviews?per_page=100');
+  const pr = get('pulls/7')[0];
+  if (pr?.state !== 'open' || pr.head?.ref !== 'feat/chart-mvp'
+    || pr.head?.repo?.full_name !== repo) throw Error('WRONG_REMOTE_BASELINE');
+  const unique = [...new Map([...comments, ...reviews].map(x => [x.html_url, x])).values()];
+  return structuredClone({ issues, reviews: unique, remote_head_sha: pr.head.sha });
+}
+
+export const remoteDigest = input => sha(JSON.stringify({
+  issues: input.issues, reviews: input.reviews, remote_head_sha: input.remote_head_sha,
+}));
+
+export function syncInbox(c, runId, get = github) {
   owned(c, runId);
   const file = path.join(c.base, 'inbox.json');
   // Invalidate before network I/O: crashes and failed refreshes cannot reuse ready.
   atomic(file, { schema: 'MFV:INBOX:v1', sync_status: 'SYNCING', releases: [] });
   try {
-    const issues = get('issues?state=all&per_page=100').filter(x => !x.pull_request);
-    const comments = get('issues/7/comments?per_page=100');
-    const reviews = get('pulls/7/reviews?per_page=100');
-    for (const number of new Set([8, 9, ...queueCandidates(issues).map(x => x.issue_number)])) {
-      comments.push(...get(`issues/${number}/comments?per_page=100`));
-    }
-    const pr = get('pulls/7')[0];
-    const unique = [...new Map([...comments, ...reviews].map(x => [x.html_url, x])).values()];
-    const task = issues.find(x => x.number === approval.issue);
-    const gate = reviews.find(x => x.id === approval.review);
-    const trustedGate = gate?.user?.id === approval.author && gate.state === 'COMMENTED'
-      && sha(gate.body) === approval.reviewBody && gate.commit_id === approval.head;
-    // Any newer supervisor decision touching this pilot/config requires re-evaluation,
-    // rather than allowing an older approval to override it.
-    const newerDecision = unique.some(x => x.user?.id === approval.author
-      && Date.parse(x.submitted_at || x.updated_at) > Date.parse(gate?.submitted_at)
-      && x.body?.includes('MFV:SUPERVISOR:v1') && /issue_number:\s*`?(8|9)\b/.test(x.body));
-    const eligible = queueCandidates(issues).some(x => x.issue_number === 9)
-      && task?.user?.id === approval.author && sha(task.body) === approval.body
-      && issueStamp(task).task_version === approval.version && trustedGate && !newerDecision
-      && task.issue_dependencies_summary?.blocked_by === 0
-      && pr?.state === 'open' && pr.head?.ref === 'feat/chart-mvp'
-      && pr.head?.repo?.full_name === repo;
-    // Double-read live task/review/PR: reject changes during the multi-request snapshot.
-    const again = get('issues/9')[0], againGate = get(`pulls/7/reviews/${approval.review}`)[0];
-    const againPr = get('pulls/7')[0];
-    if (JSON.stringify(again) !== JSON.stringify(task) || JSON.stringify(againGate) !== JSON.stringify(gate)
-      || againPr.head?.sha !== pr.head?.sha) throw Error('REMOTE_CHANGED_DURING_SYNC');
+    const inputs = remoteInputs(get);
+    if (remoteDigest(remoteInputs(get)) !== remoteDigest(inputs)) throw Error('REMOTE_CHANGED_DURING_SYNC');
     const inbox = { schema: 'MFV:INBOX:v1', repo, sync_status: 'OK', sync_run_id: runId,
       sync_id: randomUUID(), synced_at: new Date().toISOString(),
-      expires_at: new Date(Date.now() + 15 * 60 * 1000).toISOString(), issues,
-      reviews: unique, remote_head_sha: pr.head.sha,
-      releases: eligible ? [{ ...issueStamp(task), approved: true, dependencies_satisfied: true,
-        branch: 'feat/chart-mvp', scope: 'chart-mvp-comprehensibility', gate: 'configuration_ready',
-        review_id: 'MFV-SUP-W0-CONFIG-READY-20260913-01', source_comment_url: gate.html_url }] : [],
-      gate_result: eligible ? 'PILOT_READY' : 'REQUIRES_EVIDENCE_REVIEW' };
+      expires_at: new Date(Date.now() + 15 * 60 * 1000).toISOString(), ...inputs,
+      remote_snapshot_sha256: remoteDigest(inputs), releases: [],
+      gate_result: queueCandidates(inputs.issues).length ? 'REQUIRES_EVIDENCE_REVIEW' : 'EMPTY_QUEUE' };
     atomic(file, inbox);
     return { status: 'SYNCED', gate_result: inbox.gate_result, candidates: localQueue(c).candidates,
-      review_count: unique.length, remote_head_sha: pr.head.sha };
+      review_count: inbox.reviews.length, remote_head_sha: inbox.remote_head_sha,
+      pending_candidates: queueCandidates(inbox.issues) };
   } catch (error) {
     atomic(file, { schema: 'MFV:INBOX:v1', sync_status: 'FAILED', releases: [],
       blocker_key: 'REMOTE_SYNC_FAILED', error: error.message, failed_at: new Date().toISOString() });
     throw error;
   }
+}
+
+// The caller records its semantic review of the full task and all current decisions.
+// This verifies those reviewed bytes and sources; it does not infer approval from ready.
+export function verifyRelease(c, runId, evidence, get = github) {
+  owned(c, runId);
+  const file = path.join(c.base, 'inbox.json'), queue = localQueue(c), inbox = queue.inbox;
+  if (!inbox || inbox.sync_run_id !== runId) throw Error('FRESH_SYNC_REQUIRED');
+  // A failed or interrupted review must not retain an earlier release from this run.
+  atomic(file, { ...inbox, sync_status: 'VERIFYING', releases: [] });
+  try {
+    if (evidence.schema !== 'MFV:RELEASE_REVIEW:v1' || evidence.sync_id !== inbox.sync_id
+      || evidence.remote_snapshot_sha256 !== inbox.remote_snapshot_sha256
+      || evidence.decision !== 'approved' || evidence.scope !== 'project-development') throw Error('INVALID_RELEASE_REVIEW');
+    const task = inbox.issues.find(x => x.number === evidence.issue_number);
+    const stamp = task && issueStamp(task);
+    if (!stamp || ['task_version', 'body_sha256', 'updated_at'].some(k => evidence[k] !== stamp[k])
+      || !queueCandidates([task]).length || task.user?.id !== releaseAuthor
+      || task.issue_dependencies_summary?.blocked_by !== 0) throw Error('TASK_NOT_ELIGIBLE');
+    const source = inbox.reviews.find(x => x.html_url === evidence.source_comment_url);
+    if (!source || source.user?.id !== releaseAuthor || !source.body?.includes('MFV:SUPERVISOR:v1')
+      || !evidence.review_id || !source.body.includes(evidence.review_id)
+      || sha(source.body) !== evidence.source_body_sha256
+      || (source.state && !['COMMENTED', 'APPROVED'].includes(source.state))) throw Error('UNTRUSTED_RELEASE_SOURCE');
+    for (const key of ['scope', 'release', 'dependencies', 'latest_decisions']) {
+      if (evidence.checks?.[key]?.passed !== true || !evidence.checks[key].reason?.trim()) {
+        throw Error('SEMANTIC_REVIEW_REQUIRED');
+      }
+    }
+    // Re-read all relevant issues/comments/reviews, including a newly posted veto.
+    if (remoteDigest(remoteInputs(get)) !== inbox.remote_snapshot_sha256) throw Error('REMOTE_CHANGED_DURING_REVIEW');
+    if (Date.parse(inbox.expires_at) <= Date.now()) throw Error('EXPIRED_DURING_REVIEW');
+    const record = { ...evidence, run_id: runId, verified_at: new Date().toISOString(), visibility: 'LOCAL_ONLY' };
+    const evidenceSha = sha(JSON.stringify(record));
+    const evidencePath = path.join(c.base, `release-review-${evidenceSha}.json`);
+    atomic(evidencePath, record);
+    const verified = { ...stamp, approved: true, dependencies_satisfied: true,
+      branch: 'feat/chart-mvp', scope: 'project-development', gate: evidence.gate,
+      review_id: evidence.review_id, source_comment_url: source.html_url,
+      source_body_sha256: sha(source.body), evidence_sha256: evidenceSha };
+    atomic(file, { ...inbox, releases: [verified], gate_result: 'VERIFIED_READY' });
+    return { status: 'VERIFIED_READY', candidates: localQueue(c).candidates, evidence_path: evidencePath };
+  } catch (error) {
+    atomic(file, { ...inbox, sync_status: 'FAILED', releases: [],
+      blocker_key: 'RELEASE_VERIFICATION_FAILED', error: error.message });
+    throw error;
+  }
+}
+
+function reviewedRelease(c, inbox, release) {
+  if (!/^[a-f0-9]{64}$/.test(release.evidence_sha256 || '')) return false;
+  const file = path.join(c.base, `release-review-${release.evidence_sha256}.json`);
+  if (!fs.existsSync(file)) return false;
+  const evidence = json(file);
+  const source = inbox.reviews.find(x => x.html_url === release.source_comment_url);
+  return sha(JSON.stringify(evidence)) === release.evidence_sha256
+    && evidence.run_id === inbox.sync_run_id && evidence.sync_id === inbox.sync_id
+    && evidence.remote_snapshot_sha256 === inbox.remote_snapshot_sha256
+    && evidence.remote_snapshot_sha256 === remoteDigest(inbox)
+    && ['issue_number', 'task_version', 'updated_at', 'body_sha256', 'review_id',
+      'source_comment_url', 'source_body_sha256', 'scope'].every(k => evidence[k] === release[k])
+    && source?.user?.id === releaseAuthor && sha(source.body) === release.source_body_sha256;
 }
 
 // Hashes bind the reviewed bytes; they are not authentication or new authorization.
@@ -209,9 +269,9 @@ export function localQueue(c, now = Date.now()) {
     release.issue_number === task.issue_number && release.task_version === task.task_version
     && release.body_sha256 === task.body_sha256 && release.updated_at === task.updated_at
     && release.approved === true && release.dependencies_satisfied === true
-    && release.branch === 'feat/chart-mvp' && release.scope === 'chart-mvp-comprehensibility'
+    && release.branch === 'feat/chart-mvp' && release.scope === 'project-development'
     && release.review_id && release.source_comment_url
-    && (task.issue_number !== 9 || release.gate === 'configuration_ready')));
+    && reviewedRelease(c, inbox, release)));
   return { status: candidates.length ? 'LOCAL_READY' : 'EMPTY_QUEUE', candidates,
     inbox_sha256: sha(fs.readFileSync(file)), inbox };
 }
@@ -227,15 +287,23 @@ export function claim(c, runId) {
   const previous = fs.existsSync(c.state) ? json(c.state) : null;
   const pending = previous && !['bootstrap_handoff', 'acknowledged'].includes(previous.phase);
   if (pending && ['awaiting_handoff', 'awaiting_review', 'blocked'].includes(previous.phase)) {
-    return { status: 'WAITING_INTERACTIVE_HANDOFF', issue_number: previous.issue_number };
+    return { status: previous.phase.toUpperCase(), issue_number: previous.issue_number };
   }
-  const task = pending ? queue.candidates.find(x => x.issue_number === previous.issue_number) : queue.candidates[0];
+  const archive = path.join(c.base, 'acknowledged.json');
+  const acknowledged = fs.existsSync(archive) ? json(archive) : [];
+  if (previous?.phase === 'acknowledged') acknowledged.push(previous);
+  const candidates = queue.candidates.filter(x => !acknowledged.some(done =>
+    done.issue_number === x.issue_number && done.task_version === x.task_version
+    && done.body_sha256 === x.body_sha256));
+  const task = pending ? candidates.find(x => x.issue_number === previous.issue_number) : candidates[0];
   if (!task) return { status: pending ? 'WAITING_LOCAL_RELEASE' : 'EMPTY_QUEUE' };
   const recovered = recovery(c, task.issue_number);
   if (!['CLEAN', 'CLEAN_AFTER_HANDOFF', 'CHECKPOINT_MATCH'].includes(recovered.status)) return recovered;
   if (pending && (previous.body_sha256 !== task.body_sha256 || previous.task_version !== task.task_version)) {
     return { status: 'TASK_CHANGED_REQUIRES_HANDOFF' };
   }
+  // Migrate a pre-ledger acknowledged checkpoint before the next claim overwrites it.
+  rememberAcknowledged(c, previous);
   atomic(path.join(c.lock, 'owner.json'), { ...owner, issue_number: task.issue_number });
   const checkpoint = saveCheckpoint(c, runId, { ...task, phase: 'claimed',
     claim_base_sha: pending ? previous.claim_base_sha : snapshot(c).head_sha,
@@ -282,6 +350,7 @@ function main() {
   else if (command === 'checkpoint') result = saveCheckpoint(c, args[0], json(args[1]));
   else if (command === 'claim') result = claim(c, args[0]);
   else if (command === 'sync') result = syncInbox(c, args[0]);
+  else if (command === 'verify-release') result = verifyRelease(c, args[0], json(args[1]));
   else if (command === 'receipt') result = receipt(c, args[0], json(args[1]));
   else if (command === 'recover') result = recovery(c, Number(args[0]));
   else if (command === 'release') result = release(c, args[0]);
