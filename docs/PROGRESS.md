@@ -104,3 +104,11 @@ C1–C5 均带 `status:awaiting-approval`；每项含前置依赖、计划输出
 实际基线：main/origin/main均为 `f4b4bf77dc99f619084088998d82a4f41bdea57d`；仅新执行文件未跟踪。已切换新建feat/chart-mvp，保留用户文件。GitHub现为PUBLIC（本轮未改变），#1–#6均OPEN，无PR；此前PRIVATE仅为历史建仓记录。数据和原始响应/大量证据继续忽略，不公开分发。
 
 当前：C0已获用户确认；C1正在实施，C2–C5已授权未开始。用户页面验收尚未发生。下一动作：安装最小依赖，实施真实下载/固定DEMO/数据校验；通过后进入C2。无当前技术阻塞。
+
+### C1 技术通过
+
+已实现严格三文件契约、一次性OKX下载、固定DEMO生成、来源重建与SHA校验。真实5页响应生成连续1,344柱，UTC窗口 `[2026-08-29T11:30:00Z, 2026-09-12T11:30:00Z)`；下载完成2026-09-12T11:40:21.187Z。dataset_id=`history:7465dca84cd628418018a8ff3f1a7453283669fd6a8bef0a39dc4011ae46f711`。三文件和原始响应均本地忽略，不上传市场价格或截图；依据OKX API Agreement的数据使用限制，GitHub只记录代码与非价格证据摘要。
+
+实际检查：data:download成功；demo:generate成功；data:validate原始重建/字节复现通过；npm test 42/42通过；typecheck通过；npm audit 0项；既有快照保护检查成功（预期exit1、原文件SHA不变、未再次请求行情）。最初一项测试仅误匹配错误文字，已修正为精确中文错误且保留初次失败日志。只读复核发现并修复了首页截止/分页/请求时间收据校验以及发布后错误文案，未重复下载。
+
+本地证据：`artifacts/c1/{download,generation,validation}.json`、`unit.log`、`typecheck.log`、`existing-snapshot-guard.json`、`npm-audit.json`、`code-receipt.json`。精确代码文件SHA由code-receipt保存，阶段代码commit以该节对应Git提交为准；当前分支feat/chart-mvp。用户页面验收未发生。下一步C2（已授权）：固定图表/浏览器依赖，真实K线与未来坐标，技术通过后继续C3。
