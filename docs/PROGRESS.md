@@ -1,6 +1,6 @@
 # 开发进度与证据
 
-当前状态：C0基线已由用户确认，C1–C4技术通过，C5正在执行独立审查与最终交付验证。用户视觉验收未发生。当前分支feat/chart-mvp，Draft PR #7；原始数据/截图留在本地。
+当前状态：C0基线已由用户确认，C1–C4技术通过，C5工程验证和独立审查均已通过，最终停在“工程交付，待用户视觉验收”。用户视觉验收未发生。当前分支feat/chart-mvp，Draft PR #7；原始数据/截图留在本地。
 
 下方C0/建仓记录属于历史，当前结果见各阶段交接段。
 
@@ -138,3 +138,35 @@ C1–C5 均带 `status:awaiting-approval`；每项含前置依赖、计划输出
 实际typecheck/build通过；24/24浏览器检查通过（四个视口/DPR组合），包含各组合20次方案/窗口切换、5次重载、无重复图表/监听、缺文件/坏JSON/关联错误按层清理、最新请求获胜、阻断所有非本机请求仍可加载/重载以及三文件内容不变。窗口范围断言首轮在图表下一帧提交前读取，改为等待公开range达到同一精确截止，未放宽断言；初次失败日志保留。
 
 已查看默认中性网格与forecast错误实际截图，另有做多/做空及四组合材料。所有价格截图仍仅本地 `artifacts/c4/`；包括typecheck/build/e2e日志、grid-*与error-* PNG/JSON、code-receipt.json。用户尚未验收。下一步C5（已授权）：基于明确base/head独立只读审查、必要修复、干净npm ci与最终命令/本机启动停止验证。
+
+### C5 工程交付，待用户视觉验收
+
+独立审查对象为 `f4b4bf77dc99f619084088998d82a4f41bdea57d..0b9bfa51b5294e21d8bdfabb6625b65035606c5e`；两位独立Codex分别只读审查图表与数据/交付。发现并修复：P2返回缓存pagehide销毁图表、P2遗漏Zod MIT许可、P3极端等比计算溢出绕过校验、P3错误路径缺public/data前缀。修复后的具体文件SHA与独立复核结论记录在本地 `artifacts/c5/independent-review.json`。两位审查者均确认对应问题已解决；审查未代替用户视觉验收。
+
+返回缓存问题由独立审查在真实系统Chrome152.0.7977.83确证，修复后独立连续两次返回均保留7个Canvas、1个活动chart/订阅，并可切换窗口。实施者专项脚本也确认pageshow.persisted=true、原页面标记/Canvas保留、网格交互正常。最初专项脚本等待load超时：缓存恢复不重新触发load；改为等待真实返回后的原标记与persisted状态，而非放宽恢复断言，失败日志仍保留。
+
+最终实际检查与结果：
+
+| 命令/检查 | 实际结果 | 本地证据 |
+| --- | --- | --- |
+| `npm ci` | exit0；按锁文件重建依赖，0项audit公告 | artifacts/c5/npm-ci.log |
+| `npm run data:validate` | exit0；真实原始来源重建、三文件关联与字节复现通过 | artifacts/c5/data-validate.log |
+| `npm run typecheck` | exit0 | artifacts/c5/typecheck.log |
+| `npm test` | exit0；43/43通过，含新增溢出回归 | artifacts/c5/unit.log |
+| `CHART_STAGE=c5 npm run test:e2e` | exit0；28/28通过，两视口各DPR1/2 | artifacts/c5/e2e.log、artifacts/e2e-results.json |
+| `npm run build` | exit0；所有运行时许可复制进dist | artifacts/c5/build.log |
+| `npm audit --json` | exit0；0 vulnerabilities | artifacts/c5/npm-audit.json |
+| `node scripts/verify-local-servers.mjs` | dev/preview启动、真实页面、127.0.0.1监听、重复启动明确失败、停止释放端口均PASS | artifacts/c5/local-servers.json及日志/PNG |
+| `node scripts/verify-bfcache.mjs` | 真实Chrome缓存返回及恢复后网格交互PASS | artifacts/c5/bfcache.json及日志 |
+
+C5最终E2E包括：实际Canvas、96未来坐标、横纵缩放/平移/resize、全隐藏路径与纯未来尺度、每种视口/DPR下20次方案切换与5次重载、任意第四模式、错误分层清理/恢复、竞态、阻断外网仍本地加载/重载、源文件不改写、persisted页面生命周期。测试与截图使用同一冻结快照，没有再次联网取行情。
+
+截图均本地：`artifacts/c5/paths-bands-*.png`、`grid-{neutral,long,short}-*.png`、`zoom-price-scale-*.png`、`all-hidden-future-*.png`、`error-*.png`、`dev-startup.png`、`preview-startup.png`。对应JSON/代码收据含浏览器、视口、DPR、时区、dataset_id、代码与截图SHA。实施者已查看默认/区间/网格/错误/纯未来材料；这些是候选验收截图，未标为用户批准基线。
+
+当前数据快照仍为 `history:7465dca84cd628418018a8ff3f1a7453283669fd6a8bef0a39dc4011ae46f711`，三文件内容未被交互改写；原始开发包SHA仍为 `dee5d878f2c681ba4ef0afdd56a0ad470e581647afa034b1874589402cc29bff`。原始行情、DEMO价格、截图和完整证据继续受gitignore保护，仅本地存储，不随PUBLIC分支上传。
+
+最终阶段状态：#1用户已确认C0；#2–#5实施及技术通过；#6独立审查、范围内修复、工程验证与说明完成，用户五项视觉/交互验收未完成。#1–#6保留OPEN，Draft PR #7仍为Draft，未合并。最终提交/推送校验点见Git与下一条交接记录；无直接写main、强推或可见性变更。
+
+已知限制/未验证：未进行用户视觉验收；未建立用户批准截图回归基线；未对Safari/Edge做完整交互套件；没有跨真实显示器改变DPR的人工操作（自动测试在DPR1/2分别运行并验证同页面resize）。真实预测能力、自动更新、收益、交易均未实现也未授权。独立审查为指定base/head及引用修复diff，完整最终E2E由实施者运行，不声称审查者重跑全部检查。
+
+**唯一下一步：用户查看本机页面并验收五项体验。工程任务停止，不进入预测、自动更新或交易，不自动合并或关闭Issues。**

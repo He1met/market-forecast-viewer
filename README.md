@@ -1,48 +1,82 @@
-# 市场天气预报图表 MVP
+# 市场天气 · Chart MVP
 
-当前状态：**C0已确认，C1–C5已获串行实施授权，正在开始C1。当前尚无可运行页面。** 以 [PROGRESS](docs/PROGRESS.md) 为实时记录；最终待用户视觉验收。
+Mac 本机图表：真实 OKX BTC-USDT-SWAP 15m 历史、固定 DEMO 多路径/分阶段区间、独立网格方案。图表为官方 lightweight-charts 5.2.1，Vite + TypeScript + 原生页面。仅监听 `127.0.0.1`。
 
-目标是在 Mac 本地浏览器用官方 lightweight-charts 展示真实 BTC 历史、固定 DEMO 多路径/分阶段区间和可切换网格。演示不代表预测能力，不提供交易或收益评估。先验收图表，自动更新另行开发。
+C1–C5工程实施、验证和独立审查已完成；准确交接见 [PROGRESS](docs/PROGRESS.md)。**工程交付，待用户视觉验收。** DEMO不代表预测能力；没有真实预测、自动更新、收益评估、交易或模型API。
 
-## 从哪里读起
+## 在当前 Mac 打开
 
-- [协作与阶段边界](AGENTS.md)
-- [技术方案、文件计划与验收](docs/CHART_MVP.md)
-- [history / forecast / grids 字段约定](docs/DATA_CONTRACT.md)
-- [实际环境、检查结果与唯一下一步](docs/PROGRESS.md)
-- [原始开发包](Codex_Chart_MVP_Development_Pack.md)（原文保留）
+本机已经有经过验证的固定数据，无需重复下载。在项目目录执行：
 
-## 环境
+```sh
+cd /Users/shenjianpeng/Documents/market-forecast-viewer
+npm run dev
+```
 
-2026-09-12 C0 检查：macOS 26.6.2 arm64；Node v22.22.2；npm 10.9.7；Git工具2.50.1。本次建仓重新核对 Node/npm/Git 版本一致。最初目录无 Git；用户随后专项批准建立仓库及任务，记录见 PROGRESS。
+浏览器打开 [http://127.0.0.1:5173](http://127.0.0.1:5173)。在启动它的终端按 **Ctrl+C** 停止。浏览器刷新或“重载文件”只读取磁盘JSON，不下载行情、不生成新预测。
 
-## GitHub 任务入口
+C5已实际验证干净 `npm ci` 后dev与preview都能启动、显示真实页面、仅监听127.0.0.1，并能停止释放端口。端口被占用时明确报错，不会杀其他进程或偷偷换端口。先确认占用者，只有确认属于本项目的旧服务才停止它；不要杀未知进程。
 
-- [私有仓库 He1met/market-forecast-viewer](https://github.com/He1met/market-forecast-viewer)
-- [Chart MVP 里程碑](https://github.com/He1met/market-forecast-viewer/milestone/1)
-- [C0 文档确认 #1](https://github.com/He1met/market-forecast-viewer/issues/1)：基线已由用户确认。
-- [C1 数据 #2](https://github.com/He1met/market-forecast-viewer/issues/2)、[C2 真实 K 线 #3](https://github.com/He1met/market-forecast-viewer/issues/3)、[C3 路径与区间 #4](https://github.com/He1met/market-forecast-viewer/issues/4)、[C4 网格交互 #5](https://github.com/He1met/market-forecast-viewer/issues/5)、[C5 审查交付 #6](https://github.com/He1met/market-forecast-viewer/issues/6)：已授权，按技术依赖串行实施。
+## 安装与恢复
 
-Issues 包含输入/输出、验收清单、依赖和停止点；创建任务不等于实施授权。仓库目前仅存文档与 Git 忽略规则；未提供应用开源许可证，未提交行情数据。
+已验证环境：macOS26.6.2 arm64，Node22.22.2、npm10.9.7。项目要求Node22.12+，依赖为精确版本并有package-lock。项目没有全局安装要求。
 
-Chrome、Edge、Safari已安装，存在Chromium测试缓存。Headless Shell的JavaScript/Canvas 2D/ResizeObserver基础探测成功；完整Chrome for Testing探测曾超时。项目Playwright尚未安装，未执行图表E2E。详情和限制见PROGRESS。
+```sh
+npm ci
+npx playwright install chromium --only-shell --no-remove
+```
 
-计划技术栈：Vite + TypeScript + 原生页面 + lightweight-charts。C0未安装项目依赖，未启动监听服务。正式开发时固定依赖与锁文件，只绑定 `127.0.0.1`，资源本地打包。
+Playwright固定1.63.0，匹配Chromium Headless Shell153.0.8010.12 / revision1243。安装命令保留其他缓存，不覆盖系统Chrome/Edge。无浏览器测试需求时启动页面只需npm ci。
 
-## 后续命令计划——目前均不存在、未验证
+**公开Git仓库不包含价格文件、原始响应或价格截图。** 当前Mac数据在 `public/data/`，原始收据在 `artifacts/data-source/`，两者均被忽略。复制完整本地工作目录时保留这两个目录；从Git新克隆不会自动获得当前冻结快照。根据 [OKX API Agreement](https://www.okx.com/zh-hans/help/okx-api-agreement) 的数据使用限制，未经允许不要公开发布这些文件或截图。
 
-| 命令 | 预计阶段/作用 |
-| --- | --- |
-| `npm ci` | 有package/锁文件后验证干净依赖安装；C0不可用 |
-| `npm run data:download` | C1，一次性下载真实历史，失败不覆盖成功快照 |
-| `npm run demo:generate` | C1，按固定快照和seed生成两份DEMO |
-| `npm run data:validate` | C1，验证三文件及其关联 |
-| `npm run dev` | C2，本地开发预览，计划127.0.0.1:5173，strictPort |
-| `npm run typecheck`、`npm test` | 按阶段加入类型检查和相关单元测试 |
-| `npm run test:e2e` | C2起，真实浏览器交互/截图 |
-| `npm run build` | C2起，本地构建 |
-| `npm run preview` | 构建后预览，计划127.0.0.1:4173，strictPort |
+在没有history文件、且明确需要新的一次性快照时，按顺序执行：
 
-未来启动/停止说明须在实测后补齐。计划以前台终端 `Ctrl+C` 停止；端口占用时报告占用并改用明确本机端口，不杀未知进程。手动重载只重新读取本地文件，不联网或触发预测。双击 `start.command` 仅在基本流程验收后按需添加。
+```sh
+npm run data:download
+npm run demo:generate
+npm run data:validate
+```
 
-恢复工作时先读PROGRESS，确认用户授权的下一阶段再操作。本次只允许推送feat/chart-mvp并维护一个Draft PR，不合并或改变可见性，不覆盖本目录原有文件或其他项目。
+这三个命令均已实际运行。下载使用唯一指定官方端点，首页冻结最新完整柱截止，再向前收集14天；失败明确退出，不伪造、不换源。存在history.json时下载会拒绝覆盖。需要替换时，先在本机备份现有三文件及原始收据，再明确移走旧history后显式重新下载；新快照会有新的ID和时间窗口，不等于本次已验收快照。
+
+生成器根据固定历史、seed与版本生成DEMO；generated_at来自历史下载时间，实际执行时间只进收据。生成失败时不要把旧DEMO当作新关联有效结果。`data:validate` 会重建原始来源、验证三文件并比较可复现字节；缺原始收据时不能声称完整追溯通过。
+
+## 实际验证命令
+
+```sh
+npm run data:validate
+npm run typecheck
+npm test
+npm run test:e2e
+npm run build
+npm run preview
+```
+
+preview地址为 [http://127.0.0.1:4173](http://127.0.0.1:4173)，Ctrl+C停止。先停止占用5173的dev再执行test:e2e；测试自行启动和停止服务，禁止复用不明服务。测试只使用本地固定快照，不联网下载行情。
+
+已实测：43项数据单元测试、28项浏览器检查；浏览器覆盖1440×900、1280×800各DPR1/2、真实Canvas、横纵缩放、拖动、resize、纯未来/全隐藏路径、20次网格切换、重载清理/竞态、错误恢复和阻断外网；另以系统Chrome实测返回缓存恢复。本机服务专项复验可运行 `node scripts/verify-local-servers.mjs`（已实测），5173/4173必须空闲。
+
+## 界面与故障恢复
+
+- 三条DEMO路径可独立开关；内外示意带未经概率校准。隐藏全部路径后时间轴、区间和网格保留。
+- 网格模式和数量从文件读取；摘要与价格层级随方案切换，N个区间对应N+1条线。显示开关、路径开关相互独立。
+- 6/12/24h裁切同一份数据；重置恢复当前窗口与自动价格尺度；时区切换只改标签，存储仍为UTC秒。
+- history无效时清空全部图层；forecast无效时保留真实历史并清未来及依赖网格；grids无效时保留历史和未来、清网格。修复文件后点击“重载文件”。错误会显示具体文件/字段及修复方向。
+- “查看价格层级”只展示配置；底仓为演示文字，没有成交/收益逻辑。
+
+## 数据与证据
+
+当前冻结历史：UTC `[2026-08-29T11:30:00Z, 2026-09-12T11:30:00Z)`，1,344完整柱，5页原始响应；下载完成2026-09-12T11:40:21.187Z。dataset_id：`history:7465dca84cd628418018a8ff3f1a7453283669fd6a8bef0a39dc4011ae46f711`。
+
+本地 `artifacts/c1/` 保留来源/生成/校验报告；`artifacts/c2/`–`c4/` 保留分阶段PNG、测试结果与代码哈希。`artifacts/c5/` 保存最终检查、默认/区间/三套网格/缩放/错误PNG及收据。PNG旁JSON注明浏览器、视口、DPR、时区、快照与源码版本。所有截图均为候选验收材料，不能视为用户已批准的回归基线。
+
+最终用户需检查：真实历史与DEMO是否清楚区分；路径是否表达不同过程；方案是否同步改变区间/层级；缩放拖动是否持续对齐；打开/刷新时是否明确知道截止时间。
+
+## 规则与任务
+
+[AGENTS](AGENTS.md) · [功能规格](docs/CHART_MVP.md) · [数据契约](docs/DATA_CONTRACT.md) · [进度](docs/PROGRESS.md) · [本次串行授权](Codex_Chart_MVP_Sequential_Run.md) · [原始开发包](Codex_Chart_MVP_Development_Pack.md)
+
+[仓库](https://github.com/He1met/market-forecast-viewer) · [Chart MVP里程碑](https://github.com/He1met/market-forecast-viewer/milestone/1) · [Draft PR #7](https://github.com/He1met/market-forecast-viewer/pull/7)。Refs [#1](https://github.com/He1met/market-forecast-viewer/issues/1)、[#2](https://github.com/He1met/market-forecast-viewer/issues/2)、[#3](https://github.com/He1met/market-forecast-viewer/issues/3)、[#4](https://github.com/He1met/market-forecast-viewer/issues/4)、[#5](https://github.com/He1met/market-forecast-viewer/issues/5)、[#6](https://github.com/He1met/market-forecast-viewer/issues/6)。不自动合并或关闭需用户验收的Issues。
+
+第三方声明在 `public/licenses/`：lightweight-charts的Apache-2.0 LICENSE及v5.2.1 NOTICE、Zod与fancy-canvas的MIT许可证，页面保留TradingView署名和本地许可索引。没有为本项目另行授予开源许可证。

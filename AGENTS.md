@@ -6,6 +6,8 @@
 - 历史记录（已被后续实施授权扩充）：2026-09-12 用户另行批准创建 GitHub 仓库、Issues 等项目管理内容；本次允许初始化本地 Git、建立私有 `He1met/market-forecast-viewer`、上传文档并创建 Chart MVP 里程碑与 C0–C5 Issues。该授权不包含 C1–C5 实施、行情下载、公开仓库或网站部署。
 - 原始输入为 `Codex_Chart_MVP_Development_Pack.md`，保留原文。当前范围/实现计划以 CHART_MVP 为准，字段以 DATA_CONTRACT 为准，实际进度以 PROGRESS 为准；冲突优先遵循用户最新指令，就地修订相应文档。
 
+当前交付状态：C1–C5实施与工程验证已完成；用户视觉验收待进行。后续会话先核对PROGRESS和Git，不重复下载、重建项目或自动开始新阶段。
+
 ## 范围与实现原则
 
 - 空项目使用 Vite + TypeScript + 原生 HTML/CSS + 官方 `lightweight-charts`。只使用官方 Codex 进行本轮开发，不接入其他大模型、付费模型 API 或模型服务。
