@@ -1,8 +1,37 @@
 # 开发进度与证据
 
-当前状态：M0/C1–C5与#9工程、用户五项视觉验收及自然审查确认均通过，规划侧已关闭#8/#9。#11已从原手动claim恢复，完成单次Codex实验预报与本地不可覆盖归档；首份有效run事前发布，待PR #7规划侧审查。#12–#14仍受技术依赖门禁约束，未启用两小时业务任务。feat/chart-mvp，原始数据/模型输出/截图留本地。
+当前状态：M0/C1–C5、#9工程与用户五项视觉验收通过；#11 已由正式 review5189314798 通过工程审查，并在自然轮去重确认。#12 v1 已完成实验预报同图展示、概率依据和历史回放，相关测试与独立审查通过，待 PR #7 规划侧工程审查；本次新增实验页面尚未获用户体验验收。#13/#14 仍受技术依赖门禁约束，尚无 single_run_verified，未启用两小时业务任务。当前批准阶段为 M1，M2 及以后仍需用户新的明确授权。feat/chart-mvp，原始行情、模型输入输出、截图与完整证据保持 LOCAL_ONLY。
 
 下方C0/建仓记录属于历史，当前结果见各阶段交接段。
+
+## 2026-09-13 #12 实验预报图表、概率依据与历史回放
+
+本轮官方 chart-mvp 自然执行，run_id=MFV-SCHEDULED-20260913T0323-01a098c9，trigger=scheduled。从干净的主 checkout feat/chart-mvp / 5b8d217ed81ddf9c6191e2085df5241e99719e8f 开始，取得原子锁。完整双读 sync 后读取 #10 v2、#11、#12 v1 与全部相关监督决定，核实 owner COMMENTED review5189314798 的 m1_single_forecast_archived gate、修正报告5650595251及自然确认5650666925；旧范围冲突已由当前 AGENTS 和最终 gate 解决，不重复索要 M1 批准。实际 verify-release → queue → claim 只领取 #12 v1，正文SHA=4c9317ff642df87044b91d02fdef0041afcb62b6b3cc70b2532facb30efa9b84；未重复 #11 或领取 #13/#14。
+
+页面新增固定 DEMO / Codex 实验预报选择和历史 run 选择，复用同一 WeatherChart。真实 run 的当时历史、六类代表路径、未来24h主观概率、事件定义、支持/反对依据、失效条件、来源、冻结/生成/首次发布时间及模型标识可见性共同校验后一次切换。6/12h只裁切视窗，隐藏路径不重算概率；实验模式不绘制旧 DEMO 网格。模型阶段范围按原始三个矩形单层绘制，不插值阶段边界或制造内层置信带；共右轴、纯未来、缩放和DPR保留。
+
+Vite dev/preview 同进程只读适配层仅接受127.0.0.1同源GET，输出严格版本化展示投影和小型内存索引；保留静态私有文件deny、路径/祖先符号链接拒绝、冻结/来源/attempt/publication/raw输出哈希链。没有公开整个artifacts或返回输入原文、prompt、完整日志。索引区分最新运行与最新有效发布，保留failed/late/incomplete/invalid；选择的历史档案消失、索引关联错误或读取失败时保留旧图并明确更新未成功。到期/过期状态每分钟按本机时钟本地刷新，不请求数据、不改发布时间。#13实际走势及评分只预留空入口；当前6h已到期尚未核对，12h/24h未到期，late run明确排除有效评分。
+
+### 实际验证
+
+| 检查 | 结果 |
+| --- | --- |
+| npm test | M0 59/59 PASS |
+| npx vitest run tests/chart-model.test.ts | 绘图投影/阶段边界/支撑/尺度/实际入口17/17 PASS |
+| node --import tsx --test tests/m1-display.test.mjs | 只读档案、各异常状态、完整关联、HTTP dev/preview隔离9/9 PASS |
+| npm run typecheck | PASS |
+| CHART_STAGE=m12 npm run test:e2e -- --config artifacts/m12/playwright.config.ts | 64/64 PASS，1440×900与1280×800各DPR1/2；包括36项DEMO回归、28项实验图/切换/错误/迟到/过期/竞态检查 |
+| 实际截图后单独修正展开卡片的对齐，再按“真实实验run同图显示”筛选浏览器检查 | 四组视口/DPR 4/4 PASS，内容与图形断言未降低 |
+| npm run build、git diff --check | PASS；构建未包含实验档案 |
+| 冻结材料字节核验 | 35份文件全部未变，包含M0三文件、DATA_CONTRACT及两份原run全部文件 |
+
+根实施者已查看真实默认图、展开来源/依据、全路径隐藏纯未来截图；单层阶段范围与可见性正常。独立只读代理完成放行、适配层/页面及chart代码审查，发现并确认修复历史run静默回退、index-run发布关联缺失、late评分提示、跨期陈旧状态和失败attempt篡改分类问题；最终无未解决阻塞。审查SHA和代码收据本地保存，未将作者自己的测试说成独立审查。
+
+初期并行施工中的两次typecheck记录包含尚未完成的图表投影/primitive类型连接及一次误拼接属性；均在正式浏览器测试前修正，失败日志保留。E2E全套首轮全部通过。构建有当前Vite提示的未来native-config-loader扩展名兼容警告，以及测试终端颜色变量提示；不影响当前固定版本测试/构建，未压制告警或改动#11冻结方法源码。
+
+LOCAL_ONLY证据位于artifacts/m12及本轮artifacts/executor/runs目录，保留synthetic故障测试与真实run证据的区别。原有效run仍为m1-20260912T183644170Z-571e6089-d6eb-4a8d-beb4-37b70593aad1，input/raw_output/forecast/publication_receipt SHA保持#11交付值；本轮没有重新生成预测、下载行情或改原档。5173既有服务保留，E2E使用127.0.0.1:5174/strictPort并在测试后停止自己的服务；没有业务定时器或系统权限/模型/频率改动。
+
+唯一下一步：同锁归档到现有feat/chart-mvp/PR #7，规划侧审查#12绑定提交并放行#13；当前不进行实际结果评分、不提前启用#14。交付提交、远端SHA、报告正文与GET回读由同锁handoff另存。用户体验确认、工程通过、预测有效性和自然业务运行分别留证。
 
 ## 2026-09-13 #11 单次 Codex 实验预报与归档
 
