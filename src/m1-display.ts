@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { candleSchema, parseStrict } from './contracts';
+import { evaluationSchema } from './m1-evaluation';
 import { classifyPublication, rawOutputSchema, validateModelOutput } from './m1-contracts';
 
 const iso = z.string().datetime({ offset: false });
@@ -77,8 +78,17 @@ const configSchema = obj({
 export const displayRunSchema = obj({
   schema: z.literal('MFV:M1_DISPLAY:v1'), run_id: runIdSchema, history: historySchema, forecast: publishedForecastSchema,
   model: obj({ config: configSchema, identity: z.null(), identity_visibility: z.literal('not_exposed_by_jsonl') }),
-  hashes: obj({ input_sha256: hash, forecast_sha256: hash }), evaluation: obj({ status: z.literal('not_evaluated') }),
+  hashes: obj({ input_sha256: hash, forecast_sha256: hash }), evaluation: z.discriminatedUnion('status', [obj({ status: z.literal('not_evaluated') }),
+    obj({ status: z.literal('failed'), reason: z.enum(['evaluation_failed', 'evaluation_invalid', 'evaluation_incomplete']) }),
+    obj({ status: z.literal('available'), revision_id: z.string().regex(/^evaluation-\d{8}T\d{9}Z-[a-f0-9-]{36}$/), evaluation_sha256: hash, result: z.lazy(() => evaluationSchema) })]),
 }).superRefine((run, ctx) => {
+  if (run.evaluation.status === 'available') {
+    const e = run.evaluation.result;
+    if (e.forecast_id !== run.run_id || e.forecast_hash !== run.hashes.forecast_sha256
+      || e.method_version !== run.forecast.method_version || e.prompt_version !== run.forecast.prompt_version
+      || e.anchor_time !== run.forecast.anchor_time || e.anchor_price !== run.forecast.anchor_price
+      || e.published_at !== run.forecast.published_at) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Evaluation/forecast relationship mismatch' });
+  }
   if (run.run_id !== run.forecast.run_id || run.history.end_time !== run.forecast.anchor_time
     || run.history.candles.at(-1)!.close !== run.forecast.anchor_price
     || Date.parse(run.history.downloaded_at) > Date.parse(run.forecast.information_frozen_at)) {

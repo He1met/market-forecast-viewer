@@ -6,12 +6,30 @@ const snapshot=(page:Page)=>page.evaluate(()=>(window as any).chartTest.snapshot
 const runId='m1-20260912T183644170Z-571e6089-d6eb-4a8d-beb4-37b70593aad1';
 async function openExperiment(page:Page){await page.goto('/?test=1');await expect(page.locator('#load-status')).toContainText('已校验');await page.getByLabel('查看内容',{exact:true}).selectOption('experiment');await expect(page.locator('#load-status')).toContainText('实验档案已校验');await expect.poll(async()=>(await snapshot(page)).runId).toBe(runId);}
 async function stageAligned(page:Page){await expect.poll(async()=>(await snapshot(page)).stageRendered.length).toBe(3);await expect.poll(async()=>{const state=await snapshot(page);return Math.max(...state.stageRendered.flatMap((actual:any)=>{const expected=state.stageCoordinateCheck.find((x:any)=>x.id===actual.id);return ['startX','endX','lowerY','upperY'].map(key=>expected?.[key]===null?Infinity:Math.abs(actual[key]-expected[key]));}));}).toBeLessThanOrEqual(1);const s=await snapshot(page);expect(s.rangeKind).toBe('model_range_estimate');expect(s.vertices).toEqual([]);for(const actual of s.stageRendered){const expected=s.stageCoordinateCheck.find((x:any)=>x.id===actual.id);for(const key of ['startX','endX','lowerY','upperY']){expect(expected[key]).not.toBeNull();expect(Math.abs(actual[key]-expected[key])).toBeLessThanOrEqual(1);}if(expected.candleY!==null)expect(Math.abs(expected.upperY-expected.candleY)).toBeLessThanOrEqual(1);}return s;}
-async function evidence(page:Page,name:string,project:string){await mkdir('artifacts/m12',{recursive:true});const file=`artifacts/m12/${name}-${project}.png`;await page.screenshot({path:file,fullPage:true});await writeFile(file+'.json',JSON.stringify({visibility:'LOCAL_ONLY',user_approved:false,run_id:runId,screenshot_sha256:createHash('sha256').update(await readFile(file)).digest('hex'),viewport:page.viewportSize(),dpr:await page.evaluate(()=>devicePixelRatio),snapshot:await snapshot(page)},null,2));}
+async function evidence(page:Page,name:string,project:string){const directory=`artifacts/${process.env.CHART_STAGE??'m12'}`;await mkdir(directory,{recursive:true});const file=`${directory}/${name}-${project}.png`;await page.screenshot({path:file,fullPage:true});await writeFile(file+'.json',JSON.stringify({visibility:'LOCAL_ONLY',user_approved:false,run_id:runId,screenshot_sha256:createHash('sha256').update(await readFile(file)).digest('hex'),viewport:page.viewportSize(),dpr:await page.evaluate(()=>devicePixelRatio),snapshot:await snapshot(page)},null,2));}
+async function chartResizeSettled(page:Page){
+ // autoSize uses ResizeObserver and a subsequent Canvas draw; changing the viewport only
+ // settles CSS layout. The library rounds its chart dimensions down to even CSS pixels.
+ // fancy-canvas uses ResizeObserverEntry.devicePixelContentBoxSize for its bitmap. That
+ // browser value need not equal CSS * an emulated window.devicePixelRatio; do not impose
+ // that unrelated bitmap assumption on the CSS coordinate/bounds regression.
+ await expect(page.evaluate(()=>devicePixelRatio)).resolves.toBe(test.info().project.use.deviceScaleFactor??1);
+ await expect.poll(()=>page.locator('#chart').evaluate(container=>{
+  const table=container.querySelector('table'),canvas=container.querySelector('canvas');if(!table||!canvas)return {chartReady:false};
+  const outer=container.getBoundingClientRect(),chart=table.getBoundingClientRect(),pane=canvas.getBoundingClientRect();
+  const even=(n:number)=>Math.floor(n)-Math.floor(n)%2;
+  const state=(window as any).chartTest.snapshot();
+  return {chartReady:true,widthMatches:chart.width===even(outer.width),heightMatches:chart.height===even(outer.height),stageCount:state.stageRendered.length,
+   stagesInPane:state.stageRendered.every((stage:any)=>stage.upperY>=0&&stage.lowerY<=pane.height),
+   dimensions:{container:{width:outer.width,height:outer.height},chart:{width:chart.width,height:chart.height},pane:{width:pane.width,height:pane.height},bitmap:{width:canvas.width,height:canvas.height},dpr:devicePixelRatio},
+   stageRendered:state.stageRendered,stageCoordinateCheck:state.stageCoordinateCheck};
+ })).toMatchObject({chartReady:true,widthMatches:true,heightMatches:true,stageCount:3,stagesInPane:true});
+}
 
 test('真实实验run同图显示、单层阶段范围、概率依据与图形交互',async({page},info)=>{
  const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));await openExperiment(page);
  await expect(page.locator('.demo-badge')).toContainText('Codex 实验预报');await expect(page.locator('.grid-controls')).toBeHidden();await expect(page.locator('.demo-context')).toBeHidden();
- await expect(page.locator('#legend')).toContainText('未来24h');await expect(page.locator('#experiment-summary')).toContainText('未纳入事件风险');await expect(page.locator('#evaluation-status')).toContainText('6h 已到期 · 尚未核对');
+ await expect(page.locator('#legend')).toContainText('未来24h');await expect(page.locator('#experiment-summary')).toContainText('未纳入事件风险');if((await snapshot(page)).evaluationStatus==='available'){await expect(page.locator('#evaluation-status')).toContainText('当次核对');await expect(page.locator('[data-window="h6"]')).toContainText('完整核对');}else await expect(page.locator('#evaluation-status')).toContainText('6h 已到期 · 尚未核对');
  expect((await snapshot(page)).pathCount).toBe(6);expect((await snapshot(page)).gridLineCount).toBe(0);expect((await snapshot(page)).historyCount).toBe(1344);
  const colored=()=>page.locator('#chart canvas').first().evaluate((canvas:HTMLCanvasElement)=>{const p=canvas.getContext('2d')!.getImageData(0,0,canvas.width,canvas.height).data;let n=0;for(let i=0;i<p.length;i+=4)if((p[i]===86&&p[i+1]===190)||(p[i]===235&&p[i+1]===130))n++;return n;});await expect.poll(colored).toBeGreaterThan(100);
  const box=(await page.locator('#chart').boundingBox())!;const before=await snapshot(page);await page.mouse.move(box.x+box.width*.6,box.y+box.height*.5);await page.mouse.wheel(0,-220);await expect.poll(async()=>{const s=await snapshot(page);return s.range.to-s.range.from;}).not.toBe(before.range.to-before.range.from);
@@ -28,7 +46,7 @@ test('实验窗口和隐藏保留24h概率、纯未来与DEMO回切',async({page
  for(const hours of [6,12,24]){await page.getByLabel('未来展示窗口').selectOption(String(hours));await expect.poll(async()=>Number((await snapshot(page)).visibleTime.to)).toBe(before.anchor+hours*3600);expect(await page.locator('#legend').innerText()).toBe(labels);expect((await snapshot(page)).forecastHash).toBe(before.forecastHash);}
  for(const checkbox of await page.locator('#legend input').all())await checkbox.uncheck();expect((await snapshot(page)).visiblePaths).toEqual([]);expect(await page.locator('#legend').innerText()).toBe(labels);
  await page.evaluate(({from,to})=>(window as any).chartTest.setRange(from,to),{from:before.anchor+900,to:before.anchor+86400});await expect.poll(async()=>(await snapshot(page)).priceY).not.toBeNull();
- await page.setViewportSize({width:1100,height:820});const aligned=await stageAligned(page);const pane=(await page.locator('#chart').boundingBox())!;for(const stage of aligned.stageRendered){expect(stage.upperY).toBeGreaterThanOrEqual(0);expect(stage.lowerY).toBeLessThanOrEqual(pane.height);}await evidence(page,'experiment-future-hidden',info.project.name);
+ await page.setViewportSize({width:1100,height:820});await chartResizeSettled(page);const aligned=await stageAligned(page);const pane=(await page.locator('#chart').boundingBox())!;for(const stage of aligned.stageRendered){expect(stage.upperY).toBeGreaterThanOrEqual(0);expect(stage.lowerY).toBeLessThanOrEqual(pane.height);}await evidence(page,'experiment-future-hidden',info.project.name);
  await page.getByLabel('查看内容',{exact:true}).selectOption('demo');await expect(page.locator('#load-status')).toContainText('固定 DEMO');expect((await snapshot(page)).pathCount).toBe(3);expect((await snapshot(page)).gridLineCount).toBeGreaterThan(0);await expect(page.getByText('概率：未计算（固定 DEMO）',{exact:true})).toBeVisible();
 });
 
@@ -45,7 +63,7 @@ test('坏索引、缺文件和跨run关联错误保留旧图并明确更新失�
 
 test('synthetic历史run切换、最新失败与迟到状态，不执行HTML',async({page,request})=>{
  const index:DisplayIndex=await (await request.get('/api/m1/index')).json();const run:DisplayRun=await (await request.get('/api/m1/runs/'+runId)).json();
- const synthetic=structuredClone(run);synthetic.run_id=synthetic.forecast.run_id='m1-20260912T183644170Z-00000000-0000-4000-8000-000000000001';synthetic.forecast.summary='SYNTHETIC browser fixture <img src=x onerror=window.injected=true>';synthetic.forecast.published_at=new Date((run.forecast.anchor_time+1800)*1000).toISOString();synthetic.forecast.status='late';synthetic.forecast.eligible_as_latest=false;
+ const synthetic=structuredClone(run);synthetic.evaluation={status:'not_evaluated'};synthetic.run_id=synthetic.forecast.run_id='m1-20260912T183644170Z-00000000-0000-4000-8000-000000000001';synthetic.forecast.summary='SYNTHETIC browser fixture <img src=x onerror=window.injected=true>';synthetic.forecast.published_at=new Date((run.forecast.anchor_time+1800)*1000).toISOString();synthetic.forecast.status='late';synthetic.forecast.eligible_as_latest=false;
  const entry={run_id:synthetic.run_id,created_at:index.runs[0].created_at,published_at:synthetic.forecast.published_at,status:'late' as const,reason:'publication_late' as const};
  const failed={run_id:'m1-20260913T000000000Z-00000000-0000-4000-8000-000000000002',created_at:'2026-09-13T00:00:00.000Z',published_at:null,status:'failed' as const,reason:'generation_failed' as const};
  const latest_attempt={run_id:failed.run_id,created_at:failed.created_at,status:failed.status,reason:failed.reason};
@@ -75,7 +93,7 @@ test('历史run从索引消失和发布状态冲突不得静默换档',async({pa
 test('synthetic过期预报仅供历史回看，原首次发布时间保留',async({page,request})=>{
  const original:DisplayRun=await (await request.get('/api/m1/runs/'+runId)).json();const offset=2*86400;
  const shift=(value:any,key=''):any=>{if(Array.isArray(value))return value.map(v=>shift(v));if(value&&typeof value==='object')return Object.fromEntries(Object.entries(value).map(([k,v])=>[k,shift(v,k)]));if(typeof value==='number'&&['anchor_time','data_cutoff','start_time','end_time','open_time','close_time','time'].includes(key))return value-offset;if(typeof value==='string'&&/^\d{4}-\d\d-\d\dT/.test(value))return new Date(Date.parse(value)-offset*1000).toISOString();return value;};
- const run:DisplayRun=shift(original);run.run_id=run.forecast.run_id='m1-20260910T183644170Z-00000000-0000-4000-8000-000000000003';run.forecast.summary='SYNTHETIC expired browser fixture';run.hashes={input_sha256:'0'.repeat(64),forecast_sha256:'1'.repeat(64)};
+ const run:DisplayRun=shift(original);run.evaluation={status:'not_evaluated'};run.run_id=run.forecast.run_id='m1-20260910T183644170Z-00000000-0000-4000-8000-000000000003';run.forecast.summary='SYNTHETIC expired browser fixture';run.hashes={input_sha256:'0'.repeat(64),forecast_sha256:'1'.repeat(64)};
  const entry={run_id:run.run_id,created_at:'2026-09-10T18:36:44.170Z',published_at:run.forecast.published_at,status:'valid',reason:'forecast_expired'};
  await page.route('**/api/m1/index',route=>route.fulfill({json:{schema:'MFV:M1_INDEX:v1',checked_at:new Date().toISOString(),latest_run_id:null,latest_attempt:{run_id:entry.run_id,status:entry.status,created_at:entry.created_at,reason:entry.reason},runs:[entry]}}));await page.route('**/api/m1/runs/'+run.run_id,route=>route.fulfill({json:run}));
  await page.goto('/?test=1');await expect(page.locator('#load-status')).toContainText('已校验');await page.getByLabel('查看内容',{exact:true}).selectOption('experiment');await expect(page.locator('#run-status')).toContainText('预报已过期 · 历史回看');await expect(page.locator('#run-status')).toContainText(run.forecast.published_at);expect((await snapshot(page)).latestRunId).toBeNull();await expect(page.locator('#evaluation-status')).toContainText('24h 已到期 · 尚未核对');

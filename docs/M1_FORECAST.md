@@ -1,6 +1,6 @@
 # M1 单次实验预报
 
-对应 #10 v2 / #11 v1 / #12 v1。M0 已交付且五项视觉验收通过；M1 已获批准。#11 已实现本地单次 `prepare → Codex → validate/publish` 并通过工程审查，#12 接入同图显示与历史回放，#13 后续核对真实到期结果。#14 的两小时业务任务仍需 `single_run_verified`。工程能运行不等于预测准确、校准或盈利。
+对应 #10 v2 / #11 v1 / #12 v1 / #13 v1。M0 已交付且五项视觉验收通过；M1 已获批准。#11 已实现本地单次 `prepare → Codex → validate/publish` 并通过工程审查，#12 接入同图显示与历史回放，#13 添加独立实际行情归档与到期核对。#14 的两小时业务任务仍需 `single_run_verified`。本文件描述实现口径，实际成熟窗口、工程审查及运行证据以 PROGRESS 和对应收据为准。工程能运行不等于预测准确、校准或盈利。
 
 ## 冻结方法与事件
 
@@ -62,4 +62,61 @@ node --import tsx scripts/m1-forecast.mjs read artifacts/forecast-runs/<run_id>
 
 绘图投影与 M0 文件契约分开。实验概率仍属于冻结的六类24h事件，路径显隐及6/12h裁切均不重新归一。每个阶段只绘制原 lower/upper 对应的一层矩形范围；阶段交界保持原值，不把阶段范围插值成预测置信带，不套用 DEMO 内外两层区间或网格。历史、代表路径、区间与坐标支撑共用右侧价格轴，常驻支撑保持全24h节点和纯未来坐标。
 
-实际走势叠加保留显式绘图入口，尚无 #13 已核验结果时不传入合成观察值；评分区逐6/12/24h显示未到期或已到期尚未核对。到期与过期由展示时真实时间计算，不改已归档 valid/late 发布状态或首次发布时间。后续评分应另存并绑定原预测哈希。页面体验验收与规划侧工程审查分别记录。
+实际走势叠加使用显式绘图入口，尚无 #13 已核验结果时不传入合成观察值；评分区逐6/12/24h显示未到期或已到期尚未核对。到期与过期由展示时真实时间计算，不改已归档 valid/late 发布状态或首次发布时间。评分另存并绑定原预测哈希，具体口径如下。页面体验验收与规划侧工程审查分别记录。
+
+## #13 实际结果与独立评分
+
+纯函数 `evaluateForecast({ forecast, forecastHash, candles, observedThrough, evaluatedAt })` 不读取时钟、文件或网络。输入为原始严格 `PublishedForecast`、该 publication 的字节 SHA、同 OKX `BTC-USDT-SWAP` trade 15m 完整柱、实际获取覆盖截止秒和真实评分时间。它重验原方法/提示词、概率、互斥类别代表线、96个时间节点及发布时间；实际柱按 `close_time=anchor_time+k*900` 对齐，重复、乱序、错误 OHLC、未完整收盘或超出获取截止的柱均拒绝。缺柱保留，不填补、插值或用最近价格替代。
+
+结果契约为 `MFV:M1_EVALUATION:v1`，`evaluation_version=m1-evaluation-v1`；绑定 `forecast_id=run_id`、`forecast_hash`、`method_version`、`prompt_version`、原锚点/首次发布时间、`evaluated_at` 和 `observed_through`。归档层另保存评分代码 SHA 和原分类代码 SHA。原分类代码须与这份预报冻结的 provenance 一致；不根据实际结果修改事件定义。
+
+### 成熟度、可评价性与实际线
+
+`windows.h6/h12/h24` 分别期望24/48/96个未来收盘节点。`maturity` 表示本次获取覆盖截止对应的时间进度：首节点尚未到达为 `not_due`，已到部分节点为 `partial`，期限已到为 `mature`。`expected_observed_count` 只计算截止当时应已完整收盘的节点，`observed_count` 是实际取得数，`missing_times` 列出应有而缺失的时间。`status` 在缺数时为 `missing_data`，否则沿用时间进度；整份迟到预报一律 `ineligible`。顶层状态对应24h窗口，各窗口自身状态独立保留。
+
+有观察的部分窗口允许计算已观测节点的描述与 MAE，缺数窗口也只能描述实际取得的节点；两者都不发布完整期限事件或概率分数。成熟且节点完整才调用原 `classifyPath`。零观察、未支持或不可评价的数值使用 `null`，不将其写成零分。零是实际算出的结果时才有效，例如观察到的恒价路径误差确实为零。页面的当前墙钟到期提示与历史评分的 `evaluated_at/observed_through` 分开，时间过去不会自动补齐或改写旧结果。
+
+所有参与评分的未来收盘点都严格晚于首次发布时间。首根未来柱可能在发布时间之前已开盘：其发布后收盘点仍可评价，但整柱 high/low 无法区分发布前后。因此只有 `open_time >= published_at` 的完整柱参与 OHLC 极值及整柱覆盖，记录 `ohlc_eligible_count` 与 `excluded_prepublication_candles`；无合格柱时相关指标为 `null`。不从15m高低价推断内部先后、反转事件或触达时点。
+
+`actual_points` 只输出自首未来节点起到第一个缺口之前的连续前缀，迟到 run 返回空数组；`omitted_after_gap_count` 明确后续已取得但未画线的节点数。全部已取得节点仍用于其支持的描述与 MAE。显示连接只是收盘采样线，不跨缺口补线，也不是逐笔成交轨迹。
+
+### 指标公式与单位
+
+设原锚点价格为 `A`，第 `k` 个未来实际收盘为 `C[k]`，情景 `s` 的对应原代表价格为 `P[s,k]`，`O` 是某窗口内实际取得的可评分节点集合。每个窗口保留所有六情景的误差，不选择最接近的一条充当综合成绩。
+
+| 字段/指标 | 冻结计算口径 |
+| --- | --- |
+| `scenario_errors[].mae_price` | `sum(abs(P[s,k]-C[k])) / len(O)`，价格单位 |
+| `scenario_errors[].mae_return_pct` | 预测和实际均以原锚点计算收益百分比后的 MAE，等价于 `mae_price/A*100`；单位为百分点，不是每步收益误差 |
+| `constant_baseline` | 同一节点集合上将全部 `P[k]` 固定为 `A` 的相同两项 MAE；只是统计参照 |
+| `actual_category` | 完整成熟窗口的未来收盘序列调用冻结分类函数，包含原锚点并使用该窗口自己的期限 |
+| `brier_score` | 仅完整成熟24h：`sum_s((probability_24h[s] - 1[actual_category=s])^2)`；六类求和，不除以类别数，范围0至2，越小越好；6/12h始终为 `null` |
+| `width_price/width_return_pct` | 每阶段原估计 `upper-lower`，及该宽度除以 `A` 再乘100；区间宽度无需结果成熟 |
+| `close_min/close_max` | 该阶段已取得未来收盘的最小/最大值，不把锚点插入观测样本 |
+| `close_max_upside_pct/close_max_downside_pct` | 相对原锚点的上/下极值幅度：`max(0,(close_max-A)/A*100)` 与 `max(0,(A-close_min)/A*100)`；都是非负幅度，不是相对某条代表线的残差 |
+| `ohlc_low/ohlc_high` 及对应上/下幅度 | 只对整柱均在发布之后的合格 OHLC 计算 low/high 极值，相对锚点幅度同上 |
+| `close_coverage` | 该阶段收盘落在原 `[lower,upper]`（含端点）的观察数除以该阶段观察数，值为0至1 |
+| `ohlc_coverage` | 合格 OHLC 中同时 `low>=lower` 且 `high<=upper` 的完整柱占比，值为0至1；分母只包含合格整柱 |
+| `realized_volatility` | `sqrt(sum((log(C[k])-log(C[k-1]))^2))`，仅两个端点均为已取得且发布后相邻未来收盘的步；无年化、非标准差、原值是 fraction，页面可乘100显示百分比 |
+| `return_pair_count` | 上述实际相邻收益对的数量；首未来节点不与发布前锚点组成波动样本，缺口不跨越；阶段可使用前阶段相邻的已观测最后收盘 |
+
+阶段是原冻结的1–24、25–48、49–96步；每个节点只归一个阶段。阶段描述也分别保留时间成熟度、预期/实际观察数和缺口。部分阶段只描述已取得部分，无观察或整份迟到时 `observed=null`，没有相邻未来收盘对时波动为 `null`。
+
+### 获取、幂等重算与只读显示
+
+显式本地命令如下；页面刷新只读取结果，不执行这些命令：
+
+```sh
+node --import tsx scripts/m1-evaluate.mjs capture RUN_ID
+node --import tsx scripts/m1-evaluate.mjs evaluate RUN_ID CAPTURE_ID
+node --import tsx scripts/m1-evaluate.mjs run RUN_ID
+node --import tsx scripts/m1-evaluate.mjs read RUN_ID
+```
+
+`capture` 单独保存完整行情请求及原始响应；`evaluate` 评分某次 capture；`run` 顺序完成两步；`read` 只核验读取。每次获取最多覆盖原未来24h（96柱），使用有限分页/超时、正常 TLS 和既有网络环境。原始响应、HTTP/解析失败、未完成尝试、缺数和后续补数均保存在 `artifacts/m1-outcomes/<run_id>`，全部 `LOCAL_ONLY` 且 gitignored；不改原 `forecast-runs` 输入、输出、publication 或 M0 三文件。
+
+同一已保存 capture、相同评分代码重复评分返回原 revision；新的获取与补数生成新的 revision，保留之前的 `missing_data/null`，不就地覆写。结果及 manifest 在临时目录写完后原子发布。读取时重新校验源文件/预测/代码 SHA、时间、方法，并从对应实际柱确定性重算，比对全部评分字段；临时目录不算已发布。最新失败或中断明确显示，不把旧成功冒称本次成功；旧 revision 证据仍在本地。
+
+评分记录保留方法与提示词版本；当前没有跨 run 的显著性、校准率或盈利汇总。重叠窗口不是独立样本，一份记录不足以证明概率校准、区间置信水平或预测有效。区间覆盖只是对未校准模型估计的观察描述，不能据此冠以80%/95%置信带。不同方法/提示词记录也不混合成同分布样本。
+
+验收分别保存 synthetic 手算/负例、真实成熟窗口核对、UI图形验证及规划侧审查。技术完成但真实6h尚未成熟时记录 `waiting_for_outcome` 与 `next_check_at`，结束本轮等待下一有效检查；不修改系统时间、不补造历史事前预测、不额外创建评分定时器。至少一个真实成熟窗口（最先6h即可）及绑定提交/run/evaluation 的监督 `gate=single_run_verified` 才满足 #14 的业务任务前置。

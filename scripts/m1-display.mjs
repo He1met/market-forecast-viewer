@@ -7,6 +7,7 @@ import { parseStrict, validateHistory, canonical } from '../src/contracts.ts';
 import { rawOutputJsonSchema, validateModelOutput } from '../src/m1-contracts.ts';
 import { displayRunSchema, indexSchema, publishedForecastSchema, runIdSchema } from '../src/m1-display.ts';
 import { readFrozen, readPublished } from './m1-archive.mjs';
+import { createOutcomeStore } from './m1-outcome-store.mjs';
 
 const defaultRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const check = (condition, message = 'ARCHIVE_INVALID') => { if (!condition) throw Error(message); };
@@ -92,7 +93,7 @@ export function createDisplayReader({ root = defaultRoot, runsRoot = join(root, 
     }
     return directory;
   }
-  async function readRun(id) {
+  async function readRun(id, { includeEvaluation = true } = {}) {
     const directory = await preflight(id);
     const frozen = await readFrozen(directory);
     check(canonical(frozen.schema) === canonical(rawOutputJsonSchema));
@@ -123,7 +124,7 @@ export function createDisplayReader({ root = defaultRoot, runsRoot = join(root, 
     projection.stages = forecast.stages.map(({ start_time: _start, end_time: _end, ...value }) => value);
     check(canonical(projection) === canonical(rawOutput), 'MODEL_PUBLICATION_MISMATCH');
     // Whitelist the response; never spread input, source records, provenance or receipts.
-    return displayRunSchema.parse({
+    const result = displayRunSchema.parse({
       schema: 'MFV:M1_DISPLAY:v1', run_id: id,
       history: { dataset_id: history.dataset_id, instrument: history.instrument, market_type: history.market_type,
         price_type: history.price_type, bar_seconds: history.bar_seconds, start_time: history.start_time,
@@ -132,6 +133,7 @@ export function createDisplayReader({ root = defaultRoot, runsRoot = join(root, 
       forecast, model: { config: receipt.model_config, identity: receipt.model_identity, identity_visibility: receipt.model_identity_visibility },
       hashes: { input_sha256: receipt.input_sha256, forecast_sha256: receipt.forecast_sha256 }, evaluation: { status: 'not_evaluated' },
     });
+    return includeEvaluation ? displayRunSchema.parse({ ...result, evaluation: await createOutcomeStore({ root }).readLatest(result) }) : result;
   }
   async function runState(id, checkedAt) {
     // A malformed run.json stays visible as invalid without returning its bytes/error.

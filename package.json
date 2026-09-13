@@ -17,7 +17,8 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --host 127.0.0.1 --port 4173 --strictPort",
     "test:e2e": "playwright test",
-    "test:display": "vitest run tests/chart-model.test.ts && node --import tsx --test tests/m1-display.test.mjs"
+    "test:display": "vitest run tests/chart-model.test.ts && node --import tsx --test tests/m1-display.test.mjs",
+    "test:evaluation": "vitest run tests/m1-evaluation.test.ts && node --import tsx --test tests/m1-outcome-store.test.mjs"
   },
   "dependencies": {
     "fancy-canvas": "2.1.0",
