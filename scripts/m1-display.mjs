@@ -5,7 +5,7 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseStrict, validateHistory, canonical } from '../src/contracts.ts';
 import { rawOutputJsonSchema, validateModelOutput } from '../src/m1-contracts.ts';
-import { displayRunSchema, indexSchema, publishedForecastSchema, runIdSchema } from '../src/m1-display.ts';
+import { displayRunSchema, indexSchema, publishedForecastSchema, runIdSchema, runtimeDisplaySchema } from '../src/m1-display.ts';
 import { readFrozen, readPublished } from './m1-archive.mjs';
 import { createOutcomeStore } from './m1-outcome-store.mjs';
 
@@ -16,6 +16,14 @@ const iso = value => typeof value === 'string' && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d
 const inside = (file, root) => { const part = relative(root, file); return part !== '..' && !part.startsWith(`..${sep}`) && !isAbsolute(part); };
 const keys = (value, names) => value && typeof value === 'object' && !Array.isArray(value)
   && JSON.stringify(Object.keys(value).sort()) === JSON.stringify([...names].sort());
+// Read-only display verification deliberately does not import or execute the runtime entry point.
+const runtimeReleaseFiles = [
+  'scripts/m1-runtime.mjs', 'scripts/m1-runtime-events.mjs', 'scripts/executor.mjs',
+  'scripts/m1-input.mjs', 'scripts/m1-forecast.mjs', 'scripts/m1-archive.mjs', 'scripts/m1-events.mjs',
+  'scripts/m1-outcome-store.mjs', 'scripts/m1-display.mjs', 'scripts/data-utils.mjs',
+  'src/contracts.ts', 'src/m1-contracts.ts', 'src/m1-display.ts', 'src/m1-evaluation.ts',
+  'docs/M1_FORECAST.md', 'package.json', 'package-lock.json', 'tsconfig.json', '.codex/config.toml',
+];
 
 /** Local read-only access. No downloads, model calls, manifests or index writes. */
 export function createDisplayReader({ root = defaultRoot, runsRoot = join(root, 'artifacts/forecast-runs') } = {}) {
@@ -197,7 +205,65 @@ export function createDisplayReader({ root = defaultRoot, runsRoot = join(root, 
     return indexSchema.parse({ schema: 'MFV:M1_INDEX:v1', checked_at: now, latest_run_id: valid?.run_id ?? null,
       latest_attempt: latest ? { run_id: latest.run_id, created_at: latest.created_at, status: latest.status, reason: latest.reason } : null, runs });
   }
-  return { readRun, readIndex };
+  async function readRuntime({ now = new Date().toISOString() } = {}) {
+    const runtimeRoot = join(root, 'artifacts/m1-runtime');
+    const optional = async name => {
+      const file = join(runtimeRoot, name);
+      return await exists(file) ? await json(file) : null;
+    };
+    const configuration = await optional('configuration.json');
+    if (configuration) check(configuration.schema === 'MFV:M1_RUNTIME_CONFIGURATION:v1' && configuration.local_only === true);
+    async function releaseIntegrity() {
+      if (!configuration) return 'unconfigured';
+      if (typeof configuration.release_file !== 'string'
+        || !/^artifacts\/m1-runtime\/releases\/[a-zA-Z0-9_-]{1,180}\.json$/.test(configuration.release_file)
+        || !/^[a-f0-9]{64}$/.test(configuration.release_sha256 ?? '')) return 'unknown';
+      try {
+        const raw = await bytes(resolve(root, configuration.release_file));
+        if (digest(raw) !== configuration.release_sha256) return 'changed';
+        const release = parseStrict(raw.toString('utf8'));
+        if (release.schema !== 'MFV:M1_RUNTIME_RELEASE:v1' || release.local_only !== true
+          || !keys(release.code_sha256, runtimeReleaseFiles)) return 'unknown';
+        for (const name of runtimeReleaseFiles) {
+          if (!/^[a-f0-9]{64}$/.test(release.code_sha256[name])) return 'unknown';
+          if (!await exists(join(root, name)) || digest(await bytes(join(root, name))) !== release.code_sha256[name]) return 'changed';
+        }
+        return 'verified';
+      } catch { return 'unknown'; }
+    }
+    const state = await optional('status.json');
+    if (state) check(state.schema === 'MFV:M1_RUNTIME_STATE:v1' && state.local_only === true);
+    const pauseFile = join(runtimeRoot, 'PAUSED');
+    const paused = await exists(pauseFile);
+    if (paused) await safePath(pauseFile);
+    const stages = ['check_release', 'score_old', 'collect_events', 'prepare', 'generate', 'publish_index', 'done'];
+    const reason = !state || state.error_code === null ? null
+      : ['CODE_VERSION_CHANGED', 'CLI_CONFIGURATION_CHANGED'].includes(state.error_code) ? 'code_changed'
+      : state.error_code === 'PUBLICATION_LATE' ? 'publication_late'
+      : state.status === 'failed' ? 'runtime_failed' : 'unknown';
+    // Whitelist each field: local thread/configuration paths, raw errors, prompts and receipts stay private.
+    return runtimeDisplaySchema.parse({
+      schema: 'MFV:M1_RUNTIME_DISPLAY:v1', checked_at: now,
+      release_integrity: await releaseIntegrity(),
+      configuration: configuration ? {
+        task_name: configuration.task_name, frequency_hours: configuration.frequency_hours,
+        time_zone: configuration.time_zone, enabled: configuration.enabled,
+        next_run_at: null, read_back_at: configuration.read_back_at,
+      } : null,
+      paused,
+      latest_attempt: state ? {
+        cycle_id: state.cycle_id, trigger: state.trigger, status: state.status,
+        stage: stages.includes(state.stage) ? state.stage : 'unknown',
+        started_at: state.started_at, updated_at: state.updated_at, completed_at: state.completed_at,
+        reason, forecast_id: state.new_forecast?.run_id ?? null,
+      } : null,
+      last_success: state?.last_success ? {
+        cycle_id: state.last_success.cycle_id, completed_at: state.last_success.completed_at,
+        forecast_id: state.last_success.forecast_id,
+      } : null,
+    });
+  }
+  return { readRun, readIndex, readRuntime };
 }
 
 /** A tiny Vite middleware used identically by dev and preview, without a static archive mount. */
@@ -223,6 +289,7 @@ export function m1DisplayPlugin(options = {}) {
       if (request.method !== 'GET') return send(405, { error: 'GET_ONLY' });
       try {
         if (request.url === '/api/m1/index') return send(200, await reader.readIndex());
+        if (request.url === '/api/m1/runtime') return send(200, await reader.readRuntime());
         const match = request.url?.match(/^\/api\/m1\/runs\/([^/?]+)$/);
         if (!match || !runIdSchema.safeParse(match[1]).success) return send(404, { error: 'DISPLAY_ROUTE_NOT_FOUND' });
         return send(200, await reader.readRun(match[1]));

@@ -2,7 +2,7 @@ import './styles.css';
 import { loadDataset, type Dataset } from './data';
 import { WeatherChart, colors } from './chart';
 import { gridPosition, generationExplanation } from './demo-explanation';
-import { loadDisplayIndex, loadDisplayRun, type DisplayRun, type DisplayIndex } from './m1-display';
+import { loadDisplayIndex, loadDisplayRun, loadRuntimeDisplay, type DisplayRun, type DisplayIndex, type RuntimeDisplay } from './m1-display';
 import { toExperimentChart, CATEGORY_LABELS, CATEGORY_DEFINITIONS } from './chart-model';
 const $ = (id:string) => document.getElementById(id)!;
 let view:WeatherChart|undefined, dataset:Dataset={errors:[]}, request=0, controller:AbortController|undefined;
@@ -12,6 +12,38 @@ let activeMode:'demo'|'experiment'='demo', experiment:DisplayRun|undefined, expe
 const modeBar=document.createElement('section');modeBar.className='mode-bar';
 modeBar.innerHTML='<label>查看内容 <select id="mode" aria-label="查看内容"><option value="demo">固定 DEMO</option><option value="experiment">Codex 实验预报</option></select></label><label id="run-picker" hidden>历史预报 <select id="run" aria-label="历史预报"></select></label><button id="latest" hidden>读取最新索引</button><span id="run-status" role="status"></span>';
 document.querySelector('.chart-shell')!.before(modeBar);
+const runtimePanel=document.createElement('section');runtimePanel.id='runtime-panel';runtimePanel.hidden=true;
+runtimePanel.setAttribute('aria-label','实验预测业务运行状态');
+runtimePanel.innerHTML='<div class="runtime-heading"><h3>M1 实验预测运行</h3><span id="runtime-status" role="status">业务状态尚未读取</span></div><div id="runtime-details"></div><p class="runtime-help">关闭页面不会停止业务任务。暂停方式：在 Codex 应用中暂停“M1 实验预测运行”；正在执行的轮次需安全结束，暂停不等于终止当前进程。此处每分钟只读取运行状态；“读取最新索引”更新预报显示，不触发预测、下载或评分。</p>';
+modeBar.after(runtimePanel);
+let runtimeRequest=0,runtimeController:AbortController|undefined;
+const runtimeStatusLabels:Record<string,string>={running:'运行中',completed:'成功完成',failed:'运行失败',late:'新预报发布迟到',skipped:'本轮已跳过'};
+const runtimeStageLabels:Record<string,string>={check_release:'核验固定发布版本',score_old:'核对旧预报',collect_events:'收集公开事件',prepare:'冻结最新输入',generate:'生成并校验预报',publish_index:'发布只读索引',done:'流程结束',unknown:'阶段未知'};
+function renderRuntime(runtime:RuntimeDisplay){
+ const attempt=runtime.latest_attempt;
+ const state=runtime.paused?'本地暂停标记生效':runtime.release_integrity==='changed'?'固定发布版本已改变 · 业务入口将拒绝':attempt?runtimeStatusLabels[attempt.status]:'尚无业务运行记录';
+ $('runtime-status').textContent=state;
+ runtimePanel.dataset.state=runtime.paused?'paused':runtime.release_integrity==='changed'?'unknown':attempt?.status??'unconfigured';
+ const target=$('runtime-details');target.replaceChildren();
+ const add=(text:string)=>{const p=document.createElement('p');p.textContent=text;target.append(p);};
+ const configuration=runtime.configuration;
+ add(configuration?`配置回读：每 ${configuration.frequency_hours} 小时；调度时区：${configuration.time_zone??'未知'}；回读时${configuration.enabled?'启用':'暂停'}（${configuration.read_back_at}）。官方当前启用状态未实时回读。`:'业务任务未配置：尚无已核验的官方配置回读。');
+ add('下次官方计划时间：未知（官方入口未提供可读取的下次时间，不按频率推算）。');
+ add(runtime.release_integrity==='verified'?'固定发布文件与所列代码字节核验一致；此项不代表本轮已运行成功。':runtime.release_integrity==='changed'?'当前发布文件或代码已改变，业务入口将拒绝使用当前版本。下面的成功或失败记录属于原轮次，未伪造新的运行尝试。':runtime.release_integrity==='unknown'?'固定发布版本核验未知：缺少可读取的绑定资料或无法校验；下面仅展示历史运行记录。':'固定发布版本尚未配置。');
+ if(attempt){
+  const reason=attempt.reason==='code_changed'?' · 代码或模型配置变更，未使用变更版本运行':attempt.reason==='publication_late'?' · 发布迟到，不能作为最新有效预报':attempt.reason==='runtime_failed'?' · 本轮流程失败，旧预报首次发布时间不变':attempt.reason==='unknown'?' · 原因未知':attempt.reason==='lock_busy'?' · 写入锁占用':attempt.reason==='paused'?' · 暂停': '';
+  add(`最近业务尝试：${runtimeStatusLabels[attempt.status]}${reason}；${attempt.trigger==='scheduled'?'自然触发':'手动验证'}；${runtimeStageLabels[attempt.stage]}。`);
+  add(`开始 ${attempt.started_at}；${attempt.completed_at?'结束 '+attempt.completed_at:'最后记录 '+attempt.updated_at+'，是否仍在执行须由本机任务确认'}。`);
+  if(attempt.forecast_id)add(`本轮预报：${attempt.forecast_id}`);
+ }else add('最近业务尝试：暂无记录。开发定时任务不计入业务运行。');
+ add(runtime.last_success?`最近业务成功：${runtime.last_success.completed_at} · ${runtime.last_success.forecast_id}`:'最近业务成功：暂无已记录的完整成功流程。');
+ add(`状态读取时间：${runtime.checked_at}。${runtime.paused?'本地暂停会阻止后续新轮次；正在执行的轮次保留原状态。':''}`);
+}
+async function reloadRuntime(){
+ const id=++runtimeRequest;runtimeController?.abort();runtimeController=new AbortController();
+ try{const runtime=await loadRuntimeDisplay(runtimeController.signal);if(id!==runtimeRequest)return;renderRuntime(runtime);}
+ catch{if(id!==runtimeRequest)return;runtimePanel.dataset.state='unknown';$('runtime-status').textContent='业务状态读取失败 · 当前状态未知';$('runtime-details').textContent='本次无法读取或校验业务状态。预报图保留已加载快照，不把旧预报视为本次业务成功；可点击“读取最新索引”重试。';}
+}
 const experimentDetails=document.createElement('section');experimentDetails.id='experiment-details';experimentDetails.hidden=true;
 experimentDetails.innerHTML='<div id="experiment-summary"></div><div id="scenario-evidence"></div><section id="evaluation"><h3>实际走势与结果核对</h3><p id="evaluation-status"></p><div id="evaluation-content"></div></section>';
 $('detail').before(experimentDetails);
@@ -51,6 +83,7 @@ function setModePresentation(){
  detailText.textContent=isExperiment?'模型范围估计 · 未经校准 · 代表折线不是类别全部可能路径':'内层 / 外层示意区间 · 未经校准 · 路径仅为固定演示模板';
  document.querySelector('footer>span:last-child')!.firstChild!.textContent=isExperiment?'实验展示 · ':'仅作演示 · ';
  $('run-picker').hidden=select('mode').value!=='experiment';$('latest').hidden=select('mode').value!=='experiment';
+ runtimePanel.hidden=select('mode').value!=='experiment';
  if(!isExperiment)$('run-status').textContent='';
 }
 function showError(message:string){$('errors').textContent=message;$('errors').hidden=!message;}
@@ -178,6 +211,7 @@ function experimentStatus(index:DisplayIndex,run:DisplayRun,statusOnly=false){
 }
 async function reloadExperiment(preferLatest=false){
  const id=++request;controller?.abort();controller=new AbortController();setModePresentation();
+ void reloadRuntime();
  $('load-status').textContent='正在校验实验档案 · 当前显示旧快照';
  try{
   const index=await loadDisplayIndex(controller.signal);
@@ -203,5 +237,5 @@ async function reloadExperiment(preferLatest=false){
 async function reload(){if(select('mode').value==='experiment')await reloadExperiment();else await reloadDemo();}
 $('mode').onchange=()=>void reload();$('run').onchange=()=>void reloadExperiment();$('latest').onclick=()=>void reloadExperiment(true);
 if(new URLSearchParams(location.search).has('test'))Object.assign(window,{chartTest:{snapshot:()=>({...view?.diagnostics()??{historyCount:0,pathCount:0,gridLineCount:0,activeCharts:0},mode:activeMode,runId:experiment?.run_id,forecastHash:experiment?.hashes.forecast_sha256,latestRunId:experimentIndex?.latest_run_id,evaluationStatus:experiment?.evaluation.status,evaluationRevision:experiment?.evaluation.status==='available'?experiment.evaluation.revision_id:undefined}),setRange:(from:number,to:number)=>view?.setRange(from,to),reload}});
-const statusTimer=window.setInterval(()=>{if(activeMode==='experiment'&&experiment&&experimentIndex){updateExperimentMeta();if(!experimentLoadFailed)experimentStatus(experimentIndex,experiment,true);}},60000);
-void reload();window.addEventListener('pagehide',(event)=>{if(event.persisted)return;window.clearInterval(statusTimer);controller?.abort();view?.destroy();});
+const statusTimer=window.setInterval(()=>{if(select('mode').value==='experiment')void reloadRuntime();if(activeMode==='experiment'&&experiment&&experimentIndex){updateExperimentMeta();if(!experimentLoadFailed)experimentStatus(experimentIndex,experiment,true);}},60000);
+void reload();window.addEventListener('pagehide',(event)=>{if(event.persisted)return;window.clearInterval(statusTimer);controller?.abort();runtimeController?.abort();view?.destroy();});

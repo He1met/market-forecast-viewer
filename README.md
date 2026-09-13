@@ -2,7 +2,7 @@
 
 Mac 本机图表：真实 OKX BTC-USDT-SWAP 15m 历史、固定 DEMO 多路径/分阶段区间及网格，以及已归档 Codex 实验预报。图表为官方 lightweight-charts 5.2.1，Vite + TypeScript + 原生页面。仅监听 `127.0.0.1`。
 
-M0 与 #9 已通过工程和用户五项视觉验收，#11 已通过单次实验预报归档工程审查； #12 已通过显示与回放工程审查，本次 #13 接入真实结果核对，验收状态见 [PROGRESS](docs/PROGRESS.md)。Codex 概率属于未来24h事件类别，主观且未经校准；能发布和显示不代表预测准确或盈利。尚未启用两小时业务任务、收益评估或交易。
+M0 与 #9 已通过工程和用户五项视觉验收，#11–#13 已通过单次预报、展示与真实结果核对的工程审查。#14 增加固定版本的两小时业务运行，配置与自然运行验收分别见 [PROGRESS](docs/PROGRESS.md)。Codex 概率属于未来24h事件类别，主观且未经校准；能发布和显示不代表预测准确或盈利。没有收益评估或交易。
 
 ## 在当前 Mac 打开
 
@@ -35,6 +35,10 @@ node --import tsx scripts/m1-evaluate.mjs run <run_id>
 
 ## 安装与恢复
 
+官方本机任务“M1 实验预测运行”按固定发布清单组合旧预报核对和当前新预报生成，与每小时开发任务分开。它只写 LOCAL_ONLY 数据和运行收据；代码、方法或模型配置不符合冻结版本时跳过。页面实验模式另显示最近业务运行、失败和官方配置回读时间，未知的下次执行时间不会推测为已确认计划。关闭页面不会停止该任务。
+
+需要暂停时，在官方桌面应用的定时任务页面暂停该业务任务；本地 `artifacts/m1-runtime/PAUSED` 标志也会阻止新一轮获取数据。恢复前核对该标志归属，再移除标志并恢复官方启用状态。暂停不杀正在结束的命令，不删除活动锁。手动验证、真实自然触发和长期稳定分别记录；Mac/应用/网络离线期间不会事后补造错过的预报。具体运行入口与状态口径见 [M1规格](docs/M1_FORECAST.md)。
+
 已验证环境：macOS26.6.2 arm64，Node22.22.2、npm10.9.7。项目要求Node22.12+，依赖为精确版本并有package-lock。项目没有全局安装要求。
 
 ```sh
@@ -66,6 +70,7 @@ npm run typecheck
 npm test
 npm run test:evaluation
 npm run test:display
+npm run test:runtime
 npm run test:e2e
 npm run build
 npm run preview

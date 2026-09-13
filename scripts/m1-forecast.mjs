@@ -33,7 +33,7 @@ export function auditCodexEvents(stream) {
 }
 
 // The CLI is a single bounded model operation, never a development executor.
-export async function generateForecast(runDir) {
+export async function generateForecast(runDir, { beforePublish = async () => {} } = {}) {
   const frozen = await readFrozen(runDir);
   const previous = await readPublished(runDir);
   if (previous) return previous;
@@ -87,6 +87,7 @@ export async function generateForecast(runDir) {
   if (!succeeded) throw Error('Codex generation failed or attempted tools after input freeze; see LOCAL_ONLY attempt receipt');
   try {
     // The atomic publication receipt already records successful validation.
+    await beforePublish();
     return await publishRun(runDir, attempt.rawFile, { attempt_id: attempt.attempt_id });
   } catch (error) {
     await fs.writeFile(path.join(attempt.attemptDir, 'validation-result.json'), JSON.stringify({

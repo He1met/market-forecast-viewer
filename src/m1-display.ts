@@ -125,12 +125,50 @@ export const indexSchema = obj({
 });
 export type DisplayIndex = z.infer<typeof indexSchema>;
 
+const cycleIdSchema = z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,179}$/);
+const runtimeAttemptSchema = obj({
+  cycle_id: cycleIdSchema, trigger: z.enum(['manual', 'scheduled']),
+  status: z.enum(['running', 'completed', 'failed', 'late', 'skipped']),
+  stage: z.enum(['check_release', 'score_old', 'collect_events', 'prepare', 'generate', 'publish_index', 'done', 'unknown']),
+  started_at: iso, updated_at: iso, completed_at: iso.nullable(),
+  reason: z.enum(['code_changed', 'lock_busy', 'paused', 'runtime_failed', 'publication_late', 'unknown']).nullable(),
+  forecast_id: runIdSchema.nullable(),
+});
+/** Small read-only projection. Scheduler times are never inferred from a frequency. */
+export const runtimeDisplaySchema = obj({
+  schema: z.literal('MFV:M1_RUNTIME_DISPLAY:v1'), checked_at: iso,
+  release_integrity: z.enum(['verified', 'changed', 'unknown', 'unconfigured']),
+  configuration: obj({
+    task_name: z.literal('M1 实验预测运行'), frequency_hours: z.literal(2),
+    time_zone: z.string().min(1).max(80).refine(value => {
+      try { new Intl.DateTimeFormat('en', { timeZone: value }); return true; } catch { return false; }
+    }).nullable(), enabled: z.boolean(), next_run_at: z.null(), read_back_at: iso,
+  }).nullable(),
+  paused: z.boolean(), latest_attempt: runtimeAttemptSchema.nullable(),
+  last_success: obj({ cycle_id: cycleIdSchema, completed_at: iso, forecast_id: runIdSchema }).nullable(),
+}).superRefine((runtime, ctx) => {
+  const fail = () => ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Invalid runtime status relationship' });
+  const attempt = runtime.latest_attempt;
+  if ((runtime.configuration === null) !== (runtime.release_integrity === 'unconfigured')) fail();
+  if (runtime.configuration && Date.parse(runtime.configuration.read_back_at) > Date.parse(runtime.checked_at)) fail();
+  if (runtime.last_success && Date.parse(runtime.last_success.completed_at) > Date.parse(runtime.checked_at)) fail();
+  if (!attempt) return;
+  if (Date.parse(attempt.started_at) > Date.parse(attempt.updated_at) || Date.parse(attempt.updated_at) > Date.parse(runtime.checked_at)) fail();
+  if ((attempt.status === 'running') !== (attempt.completed_at === null)) fail();
+  if (attempt.completed_at && (Date.parse(attempt.completed_at) < Date.parse(attempt.started_at)
+    || Date.parse(attempt.completed_at) > Date.parse(attempt.updated_at))) fail();
+  if (attempt.status === 'completed' && (!runtime.last_success || runtime.last_success.cycle_id !== attempt.cycle_id
+    || runtime.last_success.forecast_id !== attempt.forecast_id || runtime.last_success.completed_at !== attempt.completed_at)) fail();
+});
+export type RuntimeDisplay = z.infer<typeof runtimeDisplaySchema>;
+
 async function load<T>(url: string, schema: z.ZodType<T>, signal?: AbortSignal): Promise<T> {
   const response = await fetch(url, { method: 'GET', cache: 'no-store', credentials: 'same-origin', redirect: 'error', signal });
   if (!response.ok || !response.headers.get('content-type')?.includes('application/json')) throw Error(`实验档案读取失败（HTTP ${response.status}）`);
   return schema.parse(parseStrict(await response.text()));
 }
 export const loadDisplayIndex = (signal?: AbortSignal) => load('/api/m1/index', indexSchema, signal);
+export const loadRuntimeDisplay = (signal?: AbortSignal) => load('/api/m1/runtime', runtimeDisplaySchema, signal);
 export async function loadDisplayRun(id: string, signal?: AbortSignal): Promise<DisplayRun> {
   const runId = runIdSchema.parse(id);
   const run = await load(`/api/m1/runs/${runId}`, displayRunSchema, signal);
