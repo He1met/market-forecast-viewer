@@ -1,0 +1,14 @@
+import test from'node:test';import assert from'node:assert/strict';import{newYorkTime,parseCalendar,calendarInput,parseDerivatives}from'../scripts/m1-public-data.mjs';
+test('New York explicit DST and cross-day goldens reject ambiguous or nonexistent times',()=>{assert.equal(newYorkTime(2026,1,15,8,30),'2026-01-15T13:30:00.000Z');assert.equal(newYorkTime(2026,7,15,8,30),'2026-07-15T12:30:00.000Z');assert.equal(newYorkTime(2026,7,15,23,30),'2026-07-16T03:30:00.000Z');assert.throws(()=>newYorkTime(2026,3,8,2,30));assert.throws(()=>newYorkTime(2026,11,1,1,30));});
+test('calendar dates remain dates and first observation is not a publication timestamp',()=>{const now='2026-07-01T00:00:00.000Z',items=parseCalendar('FOMC','<h4>2026 FOMC Meetings</h4><div class="fomc-meeting__month">July</div><div class="fomc-meeting__date">28-29</div>',{fetchedAt:now,sourceUrl:'https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm'});assert.equal(items[0].time_precision,'date');assert.equal(items[0].source_published_at,null);assert.equal(items[0].event_time,undefined);assert.equal(calendarInput({items},{cutoff:now,anchor:Date.parse(now)/1000}).mode,'market_only');});
+test('missing derivative values stay null and rate intervals are not assumed',()=>{const v=parseDerivatives('funding-rate',{code:'0',data:[{instId:'BTC-USDT-SWAP',ts:'1000',fundingRate:'',fundingTime:'1000',nextFundingTime:'2000'}]},'2026-01-01T00:00:00Z')[0];assert.equal(v.funding_rate,null);assert.equal(v.interval_assumed,false);});
+
+test('official nested year headings and separate BLS timezone evidence retain precise availability limits',()=>{
+ const fetchedAt='2026-07-01T00:00:00.000Z',sourceUrl='https://www.bls.gov/schedule/news_release/cpi.htm';
+ const html='<table><tr><td>June 2026</td><td>Jul. 15, 2026</td><td>08:30 AM</td></tr></table>';
+ assert.throws(()=>parseCalendar('CPI',html,{fetchedAt,sourceUrl}),/TIMEZONE_UNCONFIRMED/);
+ const cpi=parseCalendar('CPI',html,{fetchedAt,sourceUrl,timezoneEvidence:'NOTE: All times on calendar are Eastern Time.'});assert.equal(cpi[0].event_time,'2026-07-15T12:30:00.000Z');
+ const fomc=parseCalendar('FOMC','<h4><a id="year">2026 FOMC Meetings</a></h4><div class="fomc-meeting__month"><strong>July</strong></div><div class="fomc-meeting__date">28-29*</div>',{fetchedAt,sourceUrl:'https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm'});assert.equal(fomc[0].start_date,'2026-07-28');
+ const event={...cpi[0],first_seen_at:'2026-07-15T10:00:00.000Z',fetched_at:'2026-07-15T10:00:00.000Z'},cutoff='2026-07-15T11:00:00.000Z',anchor=Date.parse(cutoff)/1000;
+ assert.equal(calendarInput({items:[event]},{cutoff,anchor,enabled:true}).included.length,1);assert.equal(calendarInput({items:[{...event,fetched_at:'2026-07-15T12:00:00.000Z'}]},{cutoff,anchor,enabled:true}).mode,'market_only');assert.equal(calendarInput({items:[{...event,fetched_at:'2026-07-14T10:00:00.000Z'}]},{cutoff,anchor,enabled:true}).mode,'market_only');
+});

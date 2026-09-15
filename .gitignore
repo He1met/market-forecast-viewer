@@ -14,3 +14,7 @@ test-results/
 # Generated data/evidence stay local until their commit scope is reviewed.
 public/data/
 artifacts/
+
+# Installed releases, backup objects and host-only installation configuration.
+.local/
+installation.local.json
