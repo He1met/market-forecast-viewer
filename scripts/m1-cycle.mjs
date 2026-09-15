@@ -33,7 +33,7 @@ export async function cycle({dataRoot,releaseId,mutexPort,trigger='manual',pause
    if(registration&&!finalizationAttempted)try{await finishOpportunity(registration,{candidate_invoked:candidateAttempted,official_run_id:official?.forecast?.run_id??null,candidate_run_id:candidate?.run_id??null,candidate_status:'preparation_or_official_failed'});}catch(e){
     Object.assign(result,{status:'failed',reason:result.reason??'OPPORTUNITY_FINALIZATION_FAILED',finalization_error:e.message});
    }
-   const final={...observation,...result,...(official?{forecast_id:official.forecast.run_id,publication_committed:true}:{}),completed_at:new Date(clock()).toISOString(),elapsed_ms:monotonic()-started};
+   const final={...observation,...result,lock_acquired:mutex?.status==='ACQUIRED',...(official?{forecast_id:official.forecast.run_id,publication_committed:true}:{}),completed_at:new Date(clock()).toISOString(),elapsed_ms:monotonic()-started};
    await writeOnce(dataRoot,path.join(folder,'result.json'),final);
    if(mutex?.status==='ACQUIRED'){
     await mutex.guard();await atomic(dataRoot,path.join(dataRoot,'m1-task-status/forecast.json'),final);

@@ -1,3 +1,4 @@
+import {collectExecutionObservations} from './m1-observation-alerts.mjs';
 import {publicationHealth,observePublicationHealth} from './m1-publication-health.mjs';
 import {alertStore,opsAlertCondition} from './m1-alerts.mjs';
 import path from'node:path';import{randomUUID}from'node:crypto';import{writeOnce,atomic,readJson,exists,check}from'./m1-files.mjs';import{businessMutex}from'./m1-mutex.mjs';import{createDisplayReader}from'./m1-display.mjs';import{createOutcomeStore}from'./m1-outcome-store.mjs';import{projectionStore}from'./m1-index.mjs';import{caseStore}from'./m1-cases.mjs';import{experimentStore,effectivePolicy}from'./m1-experiments.mjs';import{mainScenario,fitLambda}from'./m1-learning.mjs';import fs from'node:fs/promises';
@@ -33,6 +34,7 @@ export async function ops({codeRoot,dataRoot,port,releaseId,policy,paused=false,
   if(await exists(slotFile)&&(await readJson(dataRoot,slotFile)).status==='completed'){result={status:'skipped',reason:'slot_completed'};return result;}
   await atomic(dataRoot,slotFile,{schema:'MFV:OPS_SLOT:v1',slot_hour:slotHour,status:'running',observation_id:id,started_at:observation.started_at});
   const guard=async()=>{await mutex.guard();check(performance.now()-start<120000,'OPS_WRITE_DEADLINE');};
+  const executionObservations=await collectExecutionObservations({dataRoot,guard});
   const experiment=experimentStore(dataRoot);const recoveredDecision=await experiment.recoverTransition({guard});
   const readers={production:createDisplayReader({root:codeRoot,dataRoot}),candidate:createDisplayReader({root:codeRoot,dataRoot,runsRoot:path.join(dataRoot,'m1-candidates')})};
   const outcomes=[],unresolved=[];let processed=0;
@@ -64,15 +66,15 @@ export async function ops({codeRoot,dataRoot,port,releaseId,policy,paused=false,
    }
   }
   if(performance.now()-start<95000)await refreshInputs({signal:AbortSignal.timeout(Math.max(1,Math.floor(115000-(performance.now()-start))))});
-  const projection=await projectionStore(dataRoot).update(readers.production,{limit:16,guard,deadline:start+120000});const incomplete=unresolved.length>0;result={status:incomplete?'partial':'completed',...(incomplete?{reason:'outcome_incomplete'}:{}),outcomes,unresolved,projection,decision};return result;
+  const projection=await projectionStore(dataRoot).update(readers.production,{limit:16,guard,deadline:start+120000});const incomplete=unresolved.length>0||executionObservations.status!=='completed';result={status:incomplete?'partial':'completed',...(incomplete?{reason:unresolved.length?'outcome_incomplete':'observation_collection_incomplete'}:{}),outcomes,unresolved,projection,decision,execution_observations:executionObservations};return result;
  }catch(e){result={status:'failed',reason:e.message};return result;}finally{
   try{
    if(mutex?.status==='ACQUIRED'&&result.status!=='skipped'){
-    try{result.publication_health=await publicationHealth({reader:createDisplayReader({root:codeRoot,dataRoot}),...await readForecastControl()});await observePublicationHealth(alertStore(dataRoot),result.publication_health,{observationId:id,guard:mutex.guard});const alerts=await alertStore(dataRoot).observe({task:'ops',observationId:id,at:new Date().toISOString(),condition:opsAlertCondition(result),guard:mutex.guard});result.alerts={delivery:alerts.pending.length?'pending':'none',event_ids:alerts.pending.map(x=>x.id)};}
+    try{result.publication_health=await publicationHealth({reader:createDisplayReader({root:codeRoot,dataRoot}),...await readForecastControl()});await observePublicationHealth(alertStore(dataRoot),result.publication_health,{observationId:id,guard:mutex.guard});const alerts=await alertStore(dataRoot).observe({task:'ops',observationId:id,at:new Date().toISOString(),condition:opsAlertCondition(result),guard:mutex.guard});const pending=[...alerts.pending,...await alertStore(dataRoot,{stream:'execution'}).pending()];result.alerts={delivery:pending.length?'pending':'none',event_ids:pending.map(x=>x.id)};}
     catch(e){Object.assign(result,{primary_status:result.status,status:'partial',alert_error:e.message,reason:result.reason??'alert_record_failed'});}
     await mutex.guard();await atomic(dataRoot,slotFile,{schema:'MFV:OPS_SLOT:v1',slot_hour:slotHour,status:result.status,observation_id:id,completed_at:new Date().toISOString()});
    }
-   const final={...observation,...result,completed_at:new Date().toISOString(),elapsed_ms:performance.now()-start};
+   const final={...observation,...result,lock_acquired:mutex?.status==='ACQUIRED',completed_at:new Date().toISOString(),elapsed_ms:performance.now()-start};
    await writeOnce(dataRoot,path.join(folder,'result.json'),final);
    if(mutex?.status==='ACQUIRED'){await mutex.guard();await atomic(dataRoot,path.join(dataRoot,'m1-task-status/ops.json'),final);}
   }finally{if(mutex?.status==='ACQUIRED')await mutex.close();}

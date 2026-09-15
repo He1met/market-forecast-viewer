@@ -91,6 +91,19 @@ await fs.rmdir(path.join(broken,'m1-control/alerts.json'));assert.equal((await o
 console.log(JSON.stringify({status:'passed',installed_alert_outbox:true,two_failures:true,deduplicated:true,recovery_pending:true,outbox_failure_blocks_completion:true,network_requests:0,model_calls:0}));
 `],{cwd:target,encoding:'utf8',env:{...process.env,NODE_PATH:'',SYNTHETIC_ALERT_ROOT:path.join(e.evidence_root,'synthetic-alerts')},timeout:60000});
 console.log(alertChain.trim());
+console.log(execFileSync(process.execPath,['--import','tsx','--input-type=module','-e',`
+import assert from 'node:assert/strict';import fs from 'node:fs/promises';import path from 'node:path';import net from 'node:net';
+import {ops} from './scripts/m1-ops.mjs';import {alertStore} from './scripts/m1-alerts.mjs';
+const root=process.env.SYNTHETIC_UNOWNED_ROOT;await fs.mkdir(root,{recursive:true});
+const foreign=net.createServer(socket=>socket.end('{}'));await new Promise(r=>foreign.listen(0,'127.0.0.1',r));const port=foreign.address().port;
+const options={codeRoot:process.cwd(),dataRoot:root,port,releaseId:'SYNTHETIC'};
+try{assert.equal((await ops(options)).reason,'MUTEX_CONFLICT');assert.equal((await alertStore(root,{stream:'execution'}).pending()).length,0);}finally{await new Promise(r=>foreign.close(r));}
+const recovered=await ops(options);assert.equal(recovered.status,'completed');assert.equal(recovered.execution_observations.consumed,1);
+const pending=await alertStore(root,{stream:'execution'}).pending();assert.equal(pending.length,1);assert.equal(pending[0].code,'MUTEX_IDENTITY_UNKNOWN');assert.equal(pending[0].delivery.status,'pending');assert.ok(recovered.alerts.event_ids.includes(pending[0].id));
+assert.equal((await ops(options)).reason,'slot_completed');assert.equal((await alertStore(root,{stream:'execution'}).pending()).length,1);
+console.log(JSON.stringify({status:'passed',installed_unknown_mutex_observation:true,unowned_log_preserved:true,locked_aggregation:true,pending_not_delivered:true,model_calls:0,network_requests:0}));
+`],{cwd:target,encoding:'utf8',env:{...process.env,NODE_PATH:'',SYNTHETIC_UNOWNED_ROOT:path.join(e.evidence_root,'synthetic-unowned')},timeout:60000}).trim());
+
 
 console.log(execFileSync(process.execPath,['--import','tsx','--input-type=module','-e',`
 import fs from 'node:fs/promises';import path from 'node:path';import assert from 'node:assert/strict';import net from 'node:net';

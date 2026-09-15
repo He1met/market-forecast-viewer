@@ -5,8 +5,9 @@ const reminderMs=6*3600000;
 const rank={warning:1,critical:2};
 // The caller owns the business mutex. State, deduplication and pending events
 // commit together: retrying an uncertain write cannot manufacture another alert.
-export function alertStore(dataRoot){
- const file=path.join(dataRoot,'m1-control/alerts.json');
+export function alertStore(dataRoot,{stream='default'}={}){
+ check(['default','execution'].includes(stream),'ALERT_STREAM_INVALID');
+ const file=path.join(dataRoot,stream==='default'?'m1-control/alerts.json':'m1-control/execution-alerts.json');
  const load=async()=>{
   const state=await exists(file)?await readJson(dataRoot,file):{schema:'MFV:ALERT_STATE:v1',tasks:{},observations:{},events:[]};
   check(state.schema==='MFV:ALERT_STATE:v1'&&state.tasks&&state.observations&&Array.isArray(state.events),'ALERT_STATE_INVALID');return state;
@@ -17,7 +18,7 @@ export function alertStore(dataRoot){
   check(['forecast','ops','backup'].includes(task)&&typeof observationId==='string'&&observationId.length>0&&observationId.length<=128,'ALERT_OBSERVATION_INVALID');
   const time=Date.parse(at);check(Number.isFinite(time),'ALERT_TIME_INVALID');
   if(condition)check(/^[A-Z][A-Z0-9_]{0,79}$/.test(condition.code)&&typeof condition.object==='string'&&/^[a-zA-Z0-9:_-]{1,128}$/.test(condition.object)&&rank[condition.severity],'ALERT_CONDITION_INVALID');
-  const state=await load(),identity=task+':'+observationId,hash=digest(canonical({task,observationId,at,condition,paused,...(confirmed?{confirmed:true}:{})}));
+  const state=await load(),identity=(stream==='default'?'':stream+':')+task+':'+observationId,hash=digest(canonical({task,observationId,at,condition,paused,...(confirmed?{confirmed:true}:{})}));
   if(state.observations[identity]){check(state.observations[identity]===hash,'ALERT_OBSERVATION_CHANGED');return{status:'duplicate',pending:state.events.filter(x=>x.delivery.status==='pending')};}
   const prior=state.tasks[task];check(!prior||time>=Date.parse(prior.checked_at),'ALERT_TIME_REVERSED');
   const active=prior?.active??{},key=condition?task+':'+condition.code+':'+condition.object:null;

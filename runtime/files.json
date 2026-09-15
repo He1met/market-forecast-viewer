@@ -56,6 +56,7 @@
     "src/contracts.ts",
     "src/m1-contracts.ts",
     "src/m1-display.ts",
-    "src/m1-evaluation.ts"
+    "src/m1-evaluation.ts",
+    "scripts/m1-observation-alerts.mjs"
   ]
 }
