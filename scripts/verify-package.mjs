@@ -233,3 +233,46 @@ assert.deepEqual(await Promise.all(names.map(n=>fs.readFile(path.join(data,'m1-c
 console.log(JSON.stringify({status:'passed',installed_notification_projection:true,outbox_unchanged:true,transport_configured:false,delivery_verified:false}));
 `],{cwd:target,encoding:'utf8',env:{...process.env,NODE_PATH:'',MFV_RUNTIME_HOME:e.evidence_root,MFV_DATA_ROOT:path.join(e.evidence_root,'synthetic-notifications')},timeout:30000});
 console.log(notifications.trim());
+
+// Forecast fallback in the sealed package uses real archives/outcome storage and
+// a held business mutex. Only the public-data transport is synthetic.
+const fallback=execFileSync(process.execPath,['--import','tsx','--input-type=module','-e',`
+import assert from 'node:assert/strict';import fs from 'node:fs/promises';import path from 'node:path';import net from 'node:net';
+import {scoreOldForecasts,ops} from './scripts/m1-ops.mjs';import {businessMutex} from './scripts/m1-mutex.mjs';import {createDisplayReader} from './scripts/m1-display.mjs';
+const data=process.env.SYNTHETIC_FALLBACK_ROOT;await fs.mkdir(data,{recursive:true});
+for(const name of ['forecast-runs','data-source'])await fs.cp(path.join(process.env.MFV_DATA_ROOT,name),path.join(data,name),{recursive:true});
+process.env.MFV_DATA_ROOT=data;
+const id='m1-20260912T183644170Z-00000000-0000-4000-8000-000000000011',reader=createDisplayReader({root:process.cwd(),dataRoot:data}),run=await reader.readRun(id);
+// Retain one eligible archive so the assertions identify the exact object.
+for(const other of await reader.listRunIds())if(other!==id)await fs.rm(path.join(data,'forecast-runs',other),{recursive:true});
+const original=await fs.readFile(path.join(data,'forecast-runs',id,'manifest.json'));
+const socket=net.createServer();await new Promise(r=>socket.listen(0,'127.0.0.1',r));const port=socket.address().port;await new Promise(r=>socket.close(r));
+let mutex=await businessMutex({dataRoot:data,port,releaseId:'SYNTHETIC_FALLBACK'});assert.equal(mutex.status,'ACQUIRED');
+let requests=0;
+const args={codeRoot:process.cwd(),dataRoot:data,mutex,deadline:performance.now()+45000,signal:AbortSignal.timeout(45000),outcomeTransport:async({file,signal,deadline})=>{
+ requests++;assert.equal(signal,args.signal);assert.equal(deadline,args.deadline);await mutex.guard();
+ assert.equal((await businessMutex({dataRoot:data,port,releaseId:'SYNTHETIC_OTHER'})).status,'BUSY');
+ await fs.writeFile(file,JSON.stringify({code:'0',msg:'SYNTHETIC',data:Array.from({length:96},(_,i)=>[String((run.forecast.anchor_time+i*900)*1000),...Array(4).fill(String(run.forecast.anchor_price)),'10','1','100','1']).reverse()}));return '200';}};
+try{
+ const opsCursor=path.join(data,'m1-control/ops-production-cursor.json'),ownCursor=path.join(data,'m1-control/forecast-fallback-production-cursor.json');
+ const failed=await scoreOldForecasts({...args,outcomeTransport:async()=>{throw Error('SYNTHETIC_HTTP_FAILURE');}});assert.equal(failed.status,'partial');assert.equal(failed.unresolved[0].run_id,id);
+ assert.equal(JSON.parse(await fs.readFile(ownCursor)).unresolved[0].run_id,id);assert.equal(await fs.stat(opsCursor).catch(()=>null),null);
+ const done=await scoreOldForecasts(args);assert.equal(done.status,'completed');assert.equal(done.outcomes[0].window_status,'mature');assert.equal(done.unresolved.length,0);assert.equal(requests,1);
+ const revision=(await reader.readRun(id)).evaluation.revision_id;
+ assert.equal(JSON.parse(await fs.readFile(ownCursor)).unresolved.length,0);assert.equal(await fs.stat(opsCursor).catch(()=>null),null);
+ await mutex.close();await fs.writeFile(path.join(data,'m1-cases'),'SYNTHETIC_CASE_WRITE_FAILURE');
+ const inspection=await ops({codeRoot:process.cwd(),dataRoot:data,port,releaseId:'SYNTHETIC_OPS',outcomeTransport:async()=>assert.fail('mature must not redownload')});
+ assert.equal(inspection.status,'partial');assert.equal(inspection.unresolved[0].run_id,id);assert.match(inspection.unresolved[0].reason,/ENOTDIR|EEXIST|NOT_DIRECTORY/);
+ const opsBefore=await fs.readFile(opsCursor);
+ mutex=await businessMutex({dataRoot:data,port,releaseId:'SYNTHETIC_FALLBACK'});assert.equal(mutex.status,'ACQUIRED');args.mutex=mutex;
+ const again=await scoreOldForecasts(args);assert.equal(again.outcomes[0].reason,'already_mature');assert.equal(requests,1);assert.equal((await reader.readRun(id)).evaluation.revision_id,revision);
+ assert.deepEqual(await fs.readFile(opsCursor),opsBefore);assert.equal(JSON.parse(opsBefore).unresolved[0].run_id,id);
+ await assert.rejects(()=>scoreOldForecasts({...args,signal:AbortSignal.abort(Error('SYNTHETIC_ABORT'))}),/SYNTHETIC_ABORT/);
+ await assert.rejects(()=>scoreOldForecasts({...args,deadline:performance.now()-1}),/FALLBACK_DEADLINE/);assert.equal(requests,1);
+ assert.deepEqual(await fs.readFile(path.join(data,'forecast-runs',id,'manifest.json')),original);
+ assert.equal(await fs.stat(path.join(data,'m1-learning')).catch(()=>null),null);
+}finally{await mutex.close();}
+const released=await businessMutex({dataRoot:data,port,releaseId:'SYNTHETIC_AFTER'});assert.equal(released.status,'ACQUIRED');await released.close();
+console.log(JSON.stringify({status:'passed',installed_forecast_fallback:true,failed_capture_preserved:true,mature_no_redownload:true,shared_mutex:true,ops_case_failure_preserved:true,budget_checked:true,original_manifest_unchanged:true,model_calls:0,market_requests:0,activated_entry_verified:false}));
+`],{cwd:target,encoding:'utf8',env:{...process.env,NODE_PATH:'',MFV_RUNTIME_HOME:e.evidence_root,MFV_DATA_ROOT:dataRoot,SYNTHETIC_FALLBACK_ROOT:path.join(e.evidence_root,'synthetic-fallback')},timeout:60000});
+console.log(fallback.trim());

@@ -8,7 +8,7 @@ export function scheduledSlot(now=Date.now()){
 export async function cycle({dataRoot,releaseId,mutexPort,trigger='manual',paused=false,readPaused=async()=>paused,resolvePolicy=async()=>null,readCapacity,freeze,generate,publishIndex,scoreOld=async()=>{},registerOpportunity=async()=>null,prepareCandidate=async()=>null,runCandidate=async()=>{},finishOpportunity=async()=>{},clock=()=>Date.now(),monotonic=()=>performance.now()}){
  check(['manual','scheduled'].includes(trigger),'TRIGGER_INVALID');const started=monotonic(),slot=scheduledSlot(clock()),id=randomUUID(),folder=path.join(dataRoot,'m1-observations',id);
  const observation={schema:'MFV:OBSERVATION:v1',id,task:'forecast',trigger,slot_id:slot.slot_id,release_id:releaseId,started_at:new Date(clock()).toISOString(),status:'started'};await writeOnce(dataRoot,path.join(folder,'started.json'),observation);
- let mutex,claim,registration,candidate,official,capacity,candidateAttempted=false,candidateCapacitySkipped=false,finalizationAttempted=false,result={status:'failed',reason:'incomplete'};const publishDeadline=Math.min(started+600000,started+(slot.first_node*1000-clock())-30000),writeDeadline=publishDeadline-15000;
+ let mutex,claim,registration,candidate,official,capacity,oldResults,candidateAttempted=false,candidateCapacitySkipped=false,finalizationAttempted=false,result={status:'failed',reason:'incomplete'};const publishDeadline=Math.min(started+600000,started+(slot.first_node*1000-clock())-30000),writeDeadline=publishDeadline-15000;
  try{
   if(paused){result={status:'skipped',reason:'paused'};return result;}
   if(clock()<Date.parse(slot.target_at)||publishDeadline-started<90000){result={status:'skipped',reason:'missed_slot'};return result;}
@@ -21,7 +21,10 @@ export async function cycle({dataRoot,releaseId,mutexPort,trigger='manual',pause
   await writeOnce(dataRoot,claim,{...slot,observation_id:id,release_id:releaseId,claimed_at:new Date(clock()).toISOString()});
   const guard=async()=>{await mutex.guard();check(monotonic()<writeDeadline,'PUBLICATION_DEADLINE');check(clock()<slot.first_node*1000-30000,'FIRST_NODE_DEADLINE');};
   registration=await registerOpportunity(slot,{guard:mutex.guard,policy});
-  const oldBudget=Math.min(45000,Math.max(0,writeDeadline-monotonic()-90000));if(oldBudget>0)await scoreOld({signal:AbortSignal.timeout(Math.floor(oldBudget)),deadline:monotonic()+oldBudget,mutex}).catch(async e=>writeOnce(dataRoot,path.join(folder,'old-results-failure.json'),{reason:e.message}));
+  const oldBudget=Math.min(45000,Math.max(0,writeDeadline-monotonic()-90000));
+  if(oldBudget>0){try{oldResults=await scoreOld({signal:AbortSignal.timeout(Math.floor(oldBudget)),deadline:monotonic()+oldBudget,mutex});}
+   catch(e){oldResults={status:'failed',reason:e.message};await writeOnce(dataRoot,path.join(folder,'old-results-failure.json'),oldResults);}}
+  else oldResults={status:'skipped',reason:'insufficient_budget'};
   await guard();const input=await freeze({slot,policy,deadline:writeDeadline,signal:AbortSignal.timeout(Math.max(1,Math.floor(writeDeadline-monotonic()))),mutex});
   if(readCapacity)capacity=await readCapacity();
   candidateCapacitySkipped=capacity?.optional_work==='blocked';
@@ -37,7 +40,7 @@ export async function cycle({dataRoot,releaseId,mutexPort,trigger='manual',pause
    if(registration&&!finalizationAttempted)try{await finishOpportunity(registration,{candidate_invoked:candidateAttempted,official_run_id:official?.forecast?.run_id??null,candidate_run_id:candidate?.run_id??null,candidate_status:'preparation_or_official_failed'});}catch(e){
     Object.assign(result,{status:'failed',reason:result.reason??'OPPORTUNITY_FINALIZATION_FAILED',finalization_error:e.message});
    }
-   const final={...observation,...result,...(capacity?{capacity}:{}),lock_acquired:mutex?.status==='ACQUIRED',...(official?{forecast_id:official.forecast.run_id,publication_committed:true}:{}),completed_at:new Date(clock()).toISOString(),elapsed_ms:monotonic()-started};
+   const final={...observation,...result,...(oldResults?{old_results:oldResults}:{}),...(capacity?{capacity}:{}),lock_acquired:mutex?.status==='ACQUIRED',...(official?{forecast_id:official.forecast.run_id,publication_committed:true}:{}),completed_at:new Date(clock()).toISOString(),elapsed_ms:monotonic()-started};
    await writeOnce(dataRoot,path.join(folder,'result.json'),final);
    if(mutex?.status==='ACQUIRED'){
     await mutex.guard();await atomic(dataRoot,path.join(dataRoot,'m1-task-status/forecast.json'),final);

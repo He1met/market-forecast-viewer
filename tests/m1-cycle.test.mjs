@@ -13,3 +13,16 @@ test('policy resolves under the business mutex before slot claim; pending never 
  await assert.rejects(()=>fs.stat(path.join(root,'m1-slots',scheduledSlot(at).slot_id+'.json')),/ENOENT/);
  assert.equal((await cycle(options)).status,'completed');assert.equal(resolves,1);
 });
+
+test('old-result fallback is bounded, shares writer, and preserves failure independently of a new publication',async t=>{
+ const{businessMutex}=await import('../scripts/m1-mutex.mjs');const{root,port}=await fixture(t);let fallbackCalls=0,freezeCalls=0;
+ const options={dataRoot:root,mutexPort:port,releaseId:'SYNTHETIC',clock:()=>Date.parse('2026-09-15T01:47:00Z'),
+ scoreOld:async({mutex,deadline,signal})=>{fallbackCalls++;await mutex.guard();assert.ok(deadline-performance.now()<=45000);assert.ok(deadline>performance.now());assert.equal(signal.aborted,false);assert.equal((await businessMutex({dataRoot:root,port,releaseId:'other'})).status,'BUSY');throw Error('SYNTHETIC_FALLBACK_FAILURE');},
+ freeze:async()=>{freezeCalls++;assert.equal(fallbackCalls,1);return{};},generate:async()=>({forecast:{run_id:'SYNTHETIC_NEW'}}),publishIndex:async()=>{}};
+ assert.equal((await cycle(options)).status,'completed');
+ const folders=await fs.readdir(path.join(root,'m1-observations')),result=JSON.parse(await fs.readFile(path.join(root,'m1-observations',folders[0],'result.json')));
+ assert.equal(result.publication_committed,true);assert.deepEqual(result.old_results,{status:'failed',reason:'SYNTHETIC_FALLBACK_FAILURE'});
+ assert.deepEqual(JSON.parse(await fs.readFile(path.join(root,'m1-observations',folders[0],'old-results-failure.json'))),result.old_results);
+ assert.equal((await cycle(options)).reason,'duplicate_slot');assert.equal(fallbackCalls,1);assert.equal(freezeCalls,1);
+ const released=await businessMutex({dataRoot:root,port,releaseId:'after'});assert.equal(released.status,'ACQUIRED');await released.close();
+});

@@ -1,4 +1,5 @@
 import {notificationSummary} from './m1-notifications.mjs';
+import {scoreOldForecasts} from './m1-ops.mjs';
 import {capacitySnapshot,requireCapacity} from './m1-capacity.mjs';
 import {setForecastPaused} from './m1-admin.mjs';
 import fs from'node:fs/promises';import path from'node:path';import{fileURLToPath}from'node:url';import{validateInstallation,readJson,writeOnce,atomic,check,exists}from'./m1-files.mjs';import{verifyPackage}from'./m1-package.mjs';import{serve}from'./m1-server.mjs';import{cycle}from'./m1-cycle.mjs';import{prepareForecast}from'./m1-input.mjs';import{generateInstalled,generateCandidate}from'./m1-model.mjs';import{createDisplayReader}from'./m1-display.mjs';import{projectionStore}from'./m1-index.mjs';import{ops}from'./m1-ops.mjs';import{backup,restore}from'./m1-backup.mjs';import{replayRestored}from'./m1-restore-replay.mjs';import{caseStore}from'./m1-cases.mjs';import{collectCalendar,collectDerivatives}from'./m1-public-data.mjs';import{experimentStore,effectivePolicy}from'./m1-experiments.mjs';import{supplementary}from'./m1-supplementary.mjs';import{startService,serviceStatus}from'./m1-service.mjs';
@@ -28,6 +29,7 @@ export async function entry(command,home,releaseId){
  check(command==='forecast','COMMAND_INVALID');return cycle({dataRoot:config.data_root,releaseId,mutexPort:config.mutex_port,paused:config.forecast_paused!==false,trigger:process.env.MFV_TRIGGER??'manual',
  readPaused:async()=> (await readForecastControl()).paused,
  readCapacity,
+ scoreOld:options=>scoreOldForecasts({codeRoot,dataRoot:config.data_root,...options}),
  resolvePolicy:async({mutex})=>{await mutex.guard();return effectivePolicy(config.data_root,policy);},
  freeze:async({slot,signal,deadline,policy})=>{const events=path.join(config.data_root,'m1-calendar','market-only-'+slot.slot_id+'.json');if(!await exists(events))await writeOnce(config.data_root,events,{schema:'MFV:M1_EVENTS:v1',mode:'market_only',information_cutoff:new Date().toISOString(),sources:[],items:[],limitations:['未纳入事件风险']});return prepareForecast(events,{anchorTime:slot.anchor_time,signal,deadline,supplementaryBuilder:args=>supplementary(config.data_root,{...args,policy:policy}),learningBuilder:(features,cutoff)=>caseStore({codeRoot,dataRoot:config.data_root}).freeze(features,cutoff,policy)});},
  registerOpportunity:async(slot,options)=>(await caseStore({codeRoot,dataRoot:config.data_root}).controls()).learning_disabled?null:experimentStore(config.data_root).register(slot,options.policy,options),

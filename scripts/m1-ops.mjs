@@ -5,9 +5,10 @@ import {alertStore,opsAlertCondition} from './m1-alerts.mjs';
 import path from'node:path';import{randomUUID}from'node:crypto';import{writeOnce,atomic,readJson,exists,check}from'./m1-files.mjs';import{businessMutex}from'./m1-mutex.mjs';import{createDisplayReader}from'./m1-display.mjs';import{createOutcomeStore}from'./m1-outcome-store.mjs';import{projectionStore}from'./m1-index.mjs';import{caseStore}from'./m1-cases.mjs';import{experimentStore,effectivePolicy}from'./m1-experiments.mjs';import{mainScenario,fitLambda}from'./m1-learning.mjs';import fs from'node:fs/promises';
 // Persist unresolved objects independently of the rotating scan position. A crash
 // after selecting an object cannot make its failure disappear on the next batch.
-export async function scanOpsBatch({dataRoot,role,ids,visit,guard,limit=8,shouldStop=()=>false}) {
+export async function scanOpsBatch({dataRoot,role,ids,visit,guard,limit=8,shouldStop=()=>false,cursorScope='ops'}) {
  check(['production','candidate'].includes(role),'OPS_ROLE_INVALID');
- const file=path.join(dataRoot,'m1-control/ops-'+role+'-cursor.json');
+ check(cursorScope==='ops'||cursorScope==='forecast-fallback'&&role==='production','OPS_CURSOR_SCOPE_INVALID');
+ const file=path.join(dataRoot,'m1-control/'+cursorScope+'-'+role+'-cursor.json');
  const prior=await exists(file)?await readJson(dataRoot,file):{offset:0,unresolved:[]};
  check(Number.isSafeInteger(prior.offset)&&prior.offset>=0&&Array.isArray(prior.unresolved??[]),'OPS_CURSOR_INVALID');
  const unresolved=new Map((prior.unresolved??[]).map(x=>[x.run_id,x]));
@@ -27,6 +28,26 @@ export async function scanOpsBatch({dataRoot,role,ids,visit,guard,limit=8,should
   outcomes.push({role,run_id:runId,...outcome});visited++;await save();
  }
  return{visited,outcomes,unresolved:[...unresolved.values()].map(x=>({role,...x}))};
+}
+// Forecast fallback reuses the current writer, but its narrower success criteria
+// must never clear ops failures (which also cover case generation).
+export async function scoreOldForecasts({codeRoot,dataRoot,mutex,signal,deadline,outcomeTransport}){
+ check(Number.isFinite(deadline)&&signal instanceof AbortSignal,'FALLBACK_BUDGET_REQUIRED');
+ const guard=async()=>{await mutex.guard();signal.throwIfAborted();check(performance.now()<deadline,'FALLBACK_DEADLINE');};
+ await guard();
+ const reader=createDisplayReader({root:codeRoot,dataRoot}),store=createOutcomeStore({root:codeRoot,dataRoot});
+ const ids=await reader.listRunIds();await guard();
+ const batch=await scanOpsBatch({dataRoot,role:'production',cursorScope:'forecast-fallback',ids,guard,limit:2,shouldStop:()=>signal.aborted||performance.now()>=deadline,visit:async runId=>{
+  await guard();const run=await reader.readRun(runId);await guard();
+  if(run.forecast.status!=='valid')return{status:'ok',reason:'ineligible_forecast'};
+  if(run.evaluation.status==='available'&&run.evaluation.result.windows.h24.status==='mature')return{status:'ok',reason:'already_mature'};
+  const capture=await store.capture(run,{transport:outcomeTransport,signal,deadline});
+  await guard();
+  if(capture.status!=='ok')return{...capture,reason:'capture_failed'};
+  const revision=await store.evaluateCapture(run,capture.capture_id);await guard();
+  return{...capture,revision_id:revision.revision_id,window_status:revision.result.windows.h24.status};
+ }});
+ return{status:batch.unresolved.length||batch.visited<ids.length?'partial':'completed',...batch};
 }
 export async function ops({codeRoot,dataRoot,port,releaseId,policy,paused=false,forecastPaused=true,expectedSince=null,readForecastControl=async()=>({paused:forecastPaused,expectedSince}),capacityPolicy,capacityStatfs,outcomeTransport,refreshInputs=async()=>{}}){
  const slotHour=new Date().toISOString().slice(0,13),slotFile=path.join(dataRoot,'m1-control/ops-slots',slotHour.replace(/[^0-9]/g,'')+'.json');
