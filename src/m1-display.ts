@@ -142,6 +142,9 @@ const runtimeAttemptSchema = obj({
 /** Small read-only projection. Scheduler times are never inferred from a frequency. */
 export const runtimeDisplaySchema = obj({
   schema: z.literal('MFV:M1_RUNTIME_DISPLAY:v1'), checked_at: iso,
+  source: z.literal('installed').optional(),
+  inspection: obj({ paused: z.boolean(), freshness: z.enum(['unknown', 'fresh', 'stale', 'clock_invalid']),
+    last_observed_at: iso.nullable(), result: z.enum(['unknown', 'ok', 'failed']) }).optional(),
   release_integrity: z.enum(['verified', 'changed', 'unknown', 'unconfigured']),
   configuration: obj({
     task_name: z.literal('M1 实验预测运行'), frequency_hours: z.literal(2),
@@ -154,7 +157,17 @@ export const runtimeDisplaySchema = obj({
 }).superRefine((runtime, ctx) => {
   const fail = () => ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Invalid runtime status relationship' });
   const attempt = runtime.latest_attempt;
-  if ((runtime.configuration === null) !== (runtime.release_integrity === 'unconfigured')) fail();
+  if (runtime.source === 'installed') {
+    if (runtime.configuration !== null || runtime.release_integrity !== 'verified' || !runtime.inspection) fail();
+    const inspection = runtime.inspection;
+    if (inspection) {
+      const age = inspection.last_observed_at === null ? null : Date.parse(runtime.checked_at) - Date.parse(inspection.last_observed_at);
+      const expected = age === null ? 'unknown' : age < 0 ? 'clock_invalid' : age > 90 * 60000 ? 'stale' : 'fresh';
+      if (inspection.freshness !== expected || (age === null) !== (inspection.result === 'unknown')) fail();
+    }
+  } else {
+    if (runtime.inspection || (runtime.configuration === null) !== (runtime.release_integrity === 'unconfigured')) fail();
+  }
   if (runtime.configuration && Date.parse(runtime.configuration.read_back_at) > Date.parse(runtime.checked_at)) fail();
   if (runtime.last_success && Date.parse(runtime.last_success.completed_at) > Date.parse(runtime.checked_at)) fail();
   if (!attempt) return;
@@ -163,7 +176,10 @@ export const runtimeDisplaySchema = obj({
   if (attempt.completed_at && (Date.parse(attempt.completed_at) < Date.parse(attempt.started_at)
     || Date.parse(attempt.completed_at) > Date.parse(attempt.updated_at))) fail();
   if (attempt.status === 'completed' && (!runtime.last_success || runtime.last_success.cycle_id !== attempt.cycle_id
-    || runtime.last_success.forecast_id !== attempt.forecast_id || runtime.last_success.completed_at !== attempt.completed_at)) fail();
+    || runtime.last_success.forecast_id !== attempt.forecast_id
+    || (runtime.source === 'installed' ? Date.parse(runtime.last_success.completed_at) < Date.parse(attempt.started_at)
+      || Date.parse(runtime.last_success.completed_at) > Date.parse(attempt.completed_at!)
+      : runtime.last_success.completed_at !== attempt.completed_at))) fail();
 });
 export type RuntimeDisplay = z.infer<typeof runtimeDisplaySchema>;
 

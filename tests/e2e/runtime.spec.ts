@@ -74,3 +74,18 @@ test('SYNTHETIC最新业务失败保持真实原预报，分钟刷新仅GET运�
  const directory=`artifacts/${process.env.CHART_STAGE??'m14'}/ui`;await mkdir(directory,{recursive:true});
  await page.screenshot({path:`${directory}/synthetic-runtime-with-archived-forecast-${info.project.name}.png`,fullPage:true});
 });
+
+test('installed runtime renders stale inspection and preserves publication success',async({page},info)=>{
+ let value:RuntimeDisplay={...runtime(),source:'installed',configuration:null,latest_attempt:null,
+  inspection:{paused:false,freshness:'stale',last_observed_at:'2026-09-13T05:00:00.000Z',result:'ok'}};
+ await page.route('**/api/m1/runtime',route=>route.fulfill({json:value}));
+ await openExperiment(page);
+ await expect(page.locator('#runtime-details')).toContainText('巡检信息陈旧（超过90分钟）');
+ await expect(page.locator('#runtime-details')).toContainText('最近预报发布成功：');
+ await expect(page.locator('#runtime-details')).toContainText('状态读取不会刷新巡检时间');
+ value={...value,paused:true,inspection:{...value.inspection!,paused:true,result:'failed'}};await refresh(page);
+ await expect(page.locator('#runtime-details')).toContainText('巡检：暂停；巡检信息陈旧');
+ await expect(page.locator('#runtime-details')).toContainText('存在未解决异常');
+ const directory='artifacts/m14';await mkdir(directory,{recursive:true});
+ await page.locator('#runtime-panel').screenshot({path:`${directory}/synthetic-installed-stale-${info.project.name}.png`});
+});

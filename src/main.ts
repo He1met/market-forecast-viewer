@@ -37,7 +37,8 @@ function renderRuntime(runtime:RuntimeDisplay){
   add(`开始 ${attempt.started_at}；${attempt.completed_at?'结束 '+attempt.completed_at:'最后记录 '+attempt.updated_at+'，是否仍在执行须由本机任务确认'}。`);
   if(attempt.forecast_id)add(`本轮预报：${attempt.forecast_id}`);
  }else add('最近业务尝试：暂无记录。开发定时任务不计入业务运行。');
- add(runtime.last_success?`最近业务成功：${runtime.last_success.completed_at} · ${runtime.last_success.forecast_id}`:'最近业务成功：暂无已记录的完整成功流程。');
+ add(runtime.last_success?`${runtime.source==='installed'?'最近预报发布成功':'最近业务成功'}：${runtime.last_success.completed_at} · ${runtime.last_success.forecast_id}`:'最近业务成功：暂无已记录的完整成功流程。');
+ if(runtime.inspection){const inspection=runtime.inspection;const label={unknown:'尚无巡检观察',fresh:'巡检观察在90分钟内',stale:'巡检信息陈旧（超过90分钟）',clock_invalid:'巡检时间异常，不能判断健康'}[inspection.freshness];add(`巡检：${inspection.paused?'暂停；':''}${label}；最近结果：${inspection.result==='ok'?'已取得必要结果':inspection.result==='failed'?'存在未解决异常':'未知'}；实际观察时间：${inspection.last_observed_at??'无'}。状态读取不会刷新巡检时间。`);}
  add(`状态读取时间：${runtime.checked_at}。${runtime.paused?'本地暂停会阻止后续新轮次；正在执行的轮次保留原状态。':''}`);
 }
 async function reloadRuntime(){
