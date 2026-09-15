@@ -1,3 +1,4 @@
+import{requireEvidence}from'./evidence-context.mjs';requireEvidence();
 import {spawn,spawnSync,execFileSync}from'node:child_process';
 import {mkdir,writeFile}from'node:fs/promises';
 import {chromium}from'@playwright/test';

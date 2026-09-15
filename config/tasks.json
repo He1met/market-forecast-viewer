@@ -1,0 +1,41 @@
+{
+  "schema": "MFV:TASK_INTENTS:v1",
+  "timezone": "Asia/Shanghai",
+  "tasks": [
+    {
+      "key": "m1",
+      "existing_id": "m1",
+      "cron": "47 1-23/2 * * *",
+      "entry": "forecast",
+      "budget_seconds": 600,
+      "activation": "after approved installation"
+    },
+    {
+      "key": "chart-mvp",
+      "existing_id": "chart-mvp",
+      "cron": "12 * * * *",
+      "entry": "development",
+      "desired_status": "ACTIVE",
+      "budget_seconds": 2400,
+      "hard_outer_timeout_verified": false,
+      "reasoning_effort": "medium"
+    },
+    {
+      "key": "m1-ops",
+      "existing_id": null,
+      "cron": "17 * * * *",
+      "entry": "ops",
+      "budget_seconds": 180,
+      "activation": "after approved installation"
+    },
+    {
+      "key": "m1-backup",
+      "existing_id": null,
+      "cron": "27 4 * * *",
+      "entry": "backup",
+      "budget_seconds": 900,
+      "weekly_budget_seconds": 1800,
+      "activation": "after approved installation"
+    }
+  ]
+}

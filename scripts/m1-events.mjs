@@ -3,10 +3,11 @@ import { constants } from 'node:fs';
 import { open, realpath, stat, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import{configuredRoots,dataReference,safePath}from'./m1-files.mjs';
 import { check, parseStrict } from '../src/contracts.ts';
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const artifactsRoot = join(projectRoot, 'artifacts');
+
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const within = (file, directory) => {
@@ -35,12 +36,15 @@ function sourceUrl(value) {
 async function artifactPath(value, { source = false, directory = false } = {}) {
   check(typeof value === 'string' && value.length > 0 && !value.includes('\0') && !value.includes('\\'), 'INVALID_ARTIFACT_PATH');
   check(!value.split('/').includes('..'), 'ARTIFACT_PATH_TRAVERSAL');
-  if (source) check(!isAbsolute(value), 'ABSOLUTE_SOURCE_PATH_FORBIDDEN');
-  const lexical = resolve(projectRoot, value);
+  if (source){check(!isAbsolute(value), 'ABSOLUTE_SOURCE_PATH_FORBIDDEN');check(value.startsWith('artifacts/'),'PATH_OUTSIDE_ARTIFACTS');}
+  const artifactsRoot=configuredRoots().data_root;
+  const lexical = isAbsolute(value)?value:dataReference(value,artifactsRoot);
+  check(within(lexical,artifactsRoot),'PATH_OUTSIDE_ARTIFACTS');
+  try{await safePath(artifactsRoot,lexical);}catch(e){if(e.message.includes('SYMLINK'))throw Error('ARTIFACT_SYMLINK_ESCAPE');throw e;}
   check(within(lexical, artifactsRoot), 'PATH_OUTSIDE_ARTIFACTS');
   const trueRoot = await realpath(projectRoot);
   const trueArtifacts = await realpath(artifactsRoot);
-  check(trueArtifacts === join(trueRoot, 'artifacts'), 'ARTIFACTS_ROOT_SYMLINK_FORBIDDEN');
+  check(trueArtifacts === artifactsRoot, 'ARTIFACTS_ROOT_SYMLINK_FORBIDDEN');
   const actual = await realpath(lexical);
   check(within(actual, trueArtifacts), 'ARTIFACT_SYMLINK_ESCAPE');
   if (directory) check((await stat(actual)).isDirectory(), 'RUN_DIRECTORY_REQUIRED');
@@ -114,7 +118,7 @@ export async function validateAndCopyEvents(eventsFile, runDir) {
   for (const [index, copy] of copies.entries()) {
     const filename = join(destination, `events-source-${String(index + 1).padStart(3, '0')}.raw`);
     await writeFile(filename, copy.bytes, { flag: 'wx', mode: 0o600 });
-    const savedPath = relative(await realpath(projectRoot), filename).split(sep).join('/');
+    const savedPath = 'artifacts/'+relative(configuredRoots().data_root, filename).split(sep).join('/');
     rewritten.set(copy.source.raw_path, savedPath);
     copy.source.raw_path = savedPath;
   }

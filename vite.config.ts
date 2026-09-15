@@ -1,3 +1,5 @@
+import { fileURLToPath } from 'node:url';
+const workspaceRoot=fileURLToPath(new URL('.',import.meta.url)).replace(/\/$/,'');
 import { defineConfig } from 'vite';
 // @ts-expect-error The read-only Node middleware is covered by its HTTP integration tests.
 import { m1DisplayPlugin } from './scripts/m1-display.mjs';
@@ -5,7 +7,7 @@ import { m1DisplayPlugin } from './scripts/m1-display.mjs';
 // Keep Vite 8.3.0's default sensitive-file rules when extending fs.deny.
 const privateFiles = [
   '.env', '.env.*', '*.{crt,pem,key,p12,pfx,cer,der}', '.npmrc', '.yarnrc.yml', '**/.git/**',
-  '**/artifacts/**', '**/.codex/**',
+  `${workspaceRoot}/artifacts/**`, `${workspaceRoot}/.local/**`, '**/.codex/**',
 ];
 
 export default defineConfig({

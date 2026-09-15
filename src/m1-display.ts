@@ -17,6 +17,7 @@ const stage = raw.shape.stages.element.extend({ start_time: integer, end_time: i
 /** Strictly validate the original publication before projecting any display fields. */
 export const publishedForecastSchema = raw.extend({
   kind: z.literal('experimental_forecast'), run_id: runIdSchema,
+  calibration:obj({schema:z.literal('MFV:CALIBRATION:v1'),lambda:z.union([z.literal(0),z.literal(.1),z.literal(.25),z.literal(.5)]),base:z.array(z.number().min(0).max(1)).length(6),raw_probabilities:z.array(z.number().min(0).max(1)).length(6),raw_main:z.string(),final_main:z.string()}).optional(),
   published_at: iso, generation_started_at: iso, generation_ended_at: iso, information_frozen_at: iso,
   status: z.enum(['valid', 'late']), eligible_as_latest: z.boolean(), data_cutoff: integer,
   event_cutoff: iso.nullable(), event_mode: z.enum(['market_only', 'official_calendar']),
@@ -29,6 +30,7 @@ export const publishedForecastSchema = raw.extend({
   scenarios: z.array(scenario).length(6), stages: z.array(stage).length(3),
 }).strict().superRefine((forecast, ctx) => {
   const fail = (message: string) => ctx.addIssue({ code: z.ZodIssueCode.custom, message });
+  if(forecast.calibration){const c=forecast.calibration;const p=forecast.scenarios.map(x=>x.probability_24h);if(Math.abs(c.base.reduce((a,b)=>a+b,0)-1)>1e-8||Math.abs(c.raw_probabilities.reduce((a,b)=>a+b,0)-1)>1e-8||p.some((x,i)=>Math.abs(x-((1-c.lambda)*c.raw_probabilities[i]+c.lambda*c.base[i]))>1e-12)||c.raw_main!==forecast.scenarios[c.raw_probabilities.indexOf(Math.max(...c.raw_probabilities))].id||c.final_main!==forecast.scenarios[p.indexOf(Math.max(...p))].id)fail('Calibration reconstruction mismatch');}
   try {
     validateModelOutput({
       schema_version: forecast.schema_version, method_version: forecast.method_version,
@@ -77,9 +79,10 @@ const configSchema = obj({
 });
 export const displayRunSchema = obj({
   schema: z.literal('MFV:M1_DISPLAY:v1'), run_id: runIdSchema, history: historySchema, forecast: publishedForecastSchema,
+  basis:obj({feedback_mode:z.enum(['F0','F1']),case_ids:z.array(hash).max(4),base_count:integer,base_cutoff:iso.nullable(),derivatives_collected:integer,derivatives_incorporated:z.boolean(),calendar_collected:integer,calendar_included:integer}).optional(),
   model: obj({ config: configSchema, identity: z.null(), identity_visibility: z.literal('not_exposed_by_jsonl') }),
   hashes: obj({ input_sha256: hash, forecast_sha256: hash }), evaluation: z.discriminatedUnion('status', [obj({ status: z.literal('not_evaluated') }),
-    obj({ status: z.literal('failed'), reason: z.enum(['evaluation_failed', 'evaluation_invalid', 'evaluation_incomplete']) }),
+    obj({ status: z.literal('failed'), reason: z.enum(['evaluation_failed', 'evaluation_invalid', 'evaluation_incomplete','evaluation_unsupported']) }),
     obj({ status: z.literal('available'), revision_id: z.string().regex(/^evaluation-\d{8}T\d{9}Z-[a-f0-9-]{36}$/), evaluation_sha256: hash, result: z.lazy(() => evaluationSchema) })]),
 }).superRefine((run, ctx) => {
   if (run.evaluation.status === 'available') {
@@ -100,9 +103,10 @@ const statusSchema = z.enum(['valid', 'late', 'failed', 'incomplete', 'invalid']
 const reasonSchema = z.enum(['forecast_expired', 'publication_late', 'preparation_failed', 'generation_failed', 'validation_failed', 'generation_incomplete', 'publication_missing', 'archive_invalid']).nullable();
 const indexEntry = obj({ run_id: runIdSchema, created_at: iso, published_at: iso.nullable(), status: statusSchema, reason: reasonSchema });
 export const indexSchema = obj({
+  summary:obj({total_runs:integer,verified_mature_runs:integer,valid_runs:integer,late_runs:integer,failed_runs:integer}).optional(),
   schema: z.literal('MFV:M1_INDEX:v1'), checked_at: iso, latest_run_id: runIdSchema.nullable(),
   latest_attempt: obj({ run_id: runIdSchema, status: statusSchema, created_at: iso, reason: reasonSchema }).nullable(),
-  runs: z.array(indexEntry),
+  runs: z.array(indexEntry),page_offset:integer.optional(),next_cursor:integer.nullable().optional(),verified_at:iso.optional(),
 }).superRefine((index, ctx) => {
   const fail = () => ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Invalid run index relationship' });
   if (new Set(index.runs.map(run => run.run_id)).size !== index.runs.length) fail();
@@ -117,6 +121,7 @@ export const indexSchema = obj({
       || (run.status === 'incomplete' && !['generation_incomplete', 'publication_missing'].includes(run.reason ?? ''))
       || (run.status === 'invalid' && run.reason !== 'archive_invalid')) fail();
   });
+  if(index.page_offset!==undefined)return;
   const latest = index.runs[0];
   if (latest ? !index.latest_attempt || ['run_id', 'created_at', 'status', 'reason'].some(key => latest[key as keyof typeof latest] !== index.latest_attempt![key as keyof typeof index.latest_attempt]) : index.latest_attempt !== null) fail();
   const valid = index.runs.filter(run => run.status === 'valid' && run.reason === null)
@@ -167,7 +172,7 @@ async function load<T>(url: string, schema: z.ZodType<T>, signal?: AbortSignal):
   if (!response.ok || !response.headers.get('content-type')?.includes('application/json')) throw Error(`实验档案读取失败（HTTP ${response.status}）`);
   return schema.parse(parseStrict(await response.text()));
 }
-export const loadDisplayIndex = (signal?: AbortSignal) => load('/api/m1/index', indexSchema, signal);
+export const loadDisplayIndex = (signal?: AbortSignal,cursor=0) => load(cursor?'/api/m1/index?cursor='+cursor:'/api/m1/index', indexSchema, signal);
 export const loadRuntimeDisplay = (signal?: AbortSignal) => load('/api/m1/runtime', runtimeDisplaySchema, signal);
 export async function loadDisplayRun(id: string, signal?: AbortSignal): Promise<DisplayRun> {
   const runId = runIdSchema.parse(id);

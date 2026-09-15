@@ -8,6 +8,7 @@ import { normalizeRows, verifySource } from './data-utils.mjs';
 import { METHOD_VERSION, PROMPT_VERSION, extractFeatures, rawOutputJsonSchema } from '../src/m1-contracts.ts';
 import { newRun, freezeInput } from './m1-archive.mjs';
 import { validateAndCopyEvents } from './m1-events.mjs';
+import{configuredRoots,readJson as readRootJson}from'./m1-files.mjs';
 
 const exec = promisify(execFile);
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -16,26 +17,27 @@ const codeFiles = ['scripts/m1-input.mjs', 'scripts/m1-forecast.mjs', 'scripts/m
   'src/m1-contracts.ts', 'src/contracts.ts', 'scripts/data-utils.mjs', 'docs/M1_FORECAST.md'];
 
 // Reuses M0 normalization/validation, but every response belongs to a new run.
-export async function downloadRunHistory(runId) {
+export async function downloadRunHistory(runId, {anchorTime,signal,deadline=Infinity}={}) {
   check(/^[a-zA-Z0-9_-]+$/.test(runId), 'Unsafe run ID');
-  const directory = `artifacts/data-source/${runId}`;
-  await fs.mkdir('artifacts/data-source', { recursive: true });
+  const dataRoot=configuredRoots().data_root;const reference=`artifacts/data-source/${runId}`;const directory=path.join(dataRoot,'data-source',runId);
+  await fs.mkdir(path.dirname(directory), { recursive: true });
   await fs.mkdir(directory, { recursive: false });
   const rows = [], receipts = [];
-  let end, after;
+  let end=anchorTime, after;
   for (let page = 1; page <= 12; page++) {
     const params = { instId: 'BTC-USDT-SWAP', bar: '15m', limit: 300, ...(after ? { after } : {}) };
     const requested_at = new Date().toISOString();
     const file = `${directory}/page-${String(page).padStart(3, '0')}.json`;
     const { stdout } = await exec('curl', ['--fail-with-body', '--silent', '--show-error',
       '--max-time', '30', '--output', file, '--write-out', '%{http_code}',
-      endpoint + '?' + new URLSearchParams(params)], { timeout: 35000 });
+      endpoint + '?' + new URLSearchParams(params)], { timeout: Math.min(35000,Math.max(1,deadline-performance.now())),signal });
     check(stdout.trim() === '200', `OKX HTTP ${stdout.trim()}`);
     const bytes = await fs.readFile(file), body = parseStrict(bytes.toString('utf8'));
     check(body.code === '0' && Array.isArray(body.data) && body.data.length > 0, 'OKX error or empty page');
     rows.push(...body.data);
-    receipts.push({ path: file, sha256: digest(bytes), requested_at, params, response_code: body.code });
+    receipts.push({ path: `${reference}/${path.basename(file)}`, sha256: digest(bytes), requested_at, params, response_code: body.code });
     const normalized = normalizeRows(rows, end); end = normalized.end;
+    if(page===1&&anchorTime!==undefined)check(normalizeRows(body.data).end===anchorTime,'SLOT_MARKET_ANCHOR_MISMATCH');
     if (normalized.candles.length === 1344) break;
     const oldest = Math.min(...body.data.map(row => Number(row[0])));
     check(!after || oldest < Number(after), 'OKX pagination did not advance');
@@ -65,24 +67,26 @@ stages分别start_step/end_step=1/24、25/48、49/96；lower/upper为你对相�
 冻结模型上下文（完整14天原始来源另行归档；这里展示特征和末96柱）：\n${JSON.stringify(context)}\n`;
 }
 
-export async function prepareForecast(eventsFile) {
+export async function prepareForecast(eventsFile,{anchorTime,signal,deadline,extraContext={},learningBuilder,supplementaryBuilder}={}) {
   const run = await newRun();
   try {
     // Event bytes must exist before the market capture and input freeze.
     const { events, original_sha256 } = await validateAndCopyEvents(eventsFile, run.runDir);
-    const history = await downloadRunHistory(run.run_id);
+    const history = await downloadRunHistory(run.run_id,{anchorTime,signal,deadline});
     const features = extractFeatures(history.candles);
+    if(learningBuilder)extraContext={...extraContext,learning:await learningBuilder(features,new Date().toISOString())};
     const anchor_time = history.end_time, anchor_price = history.candles.at(-1).close;
-    const model_context = { instrument: history.instrument, market_type: history.market_type,
+    const supplement=supplementaryBuilder?await supplementaryBuilder({cutoff:new Date().toISOString(),anchor:anchor_time}):null;
+    const model_context = { ...extraContext,...(supplement?.model_context??{}), instrument: history.instrument, market_type: history.market_type,
       price_type: history.price_type, time_unit: 's', bar_seconds: 900, anchor_time, anchor_price,
       data_cutoff: new Date(anchor_time * 1000).toISOString(), downloaded_at: history.downloaded_at,
       features, events: events.mode === 'market_only' ? { mode: 'market_only',
         information_cutoff: events.information_cutoff, event_risk_incorporated: false,
         limitations: ['未纳入事件风险；不能由来源缺失推断没有重大事件。', ...events.limitations] } : events,
       latest_candles: history.candles.slice(-96) };
-    const input = { schema_version: 'm1-input.0', history, anchor_time, anchor_price, features, events, model_context };
-    const code = Object.fromEntries(await Promise.all(codeFiles.map(async file => [file, digest(await fs.readFile(file))])));
-    const { stdout: head } = await exec('git', ['rev-parse', 'HEAD']);
+    const input = { schema_version: supplement?'m1-input.1':'m1-input.0', history, anchor_time, anchor_price, features, events, model_context,...(supplement?{supplementary:supplement}:{}) };
+    const code = Object.fromEntries(await Promise.all(codeFiles.map(async file => [file, digest(await fs.readFile(path.join(configuredRoots().code_root,file)))])));
+    const head=process.env.MFV_RUNTIME_HOME?(await readRootJson(configuredRoots().code_root,path.join(configuredRoots().code_root,'manifest.json'))).build_sha:(await exec('git',['rev-parse','HEAD'])).stdout;
     const provenance = { method_version: METHOD_VERSION, prompt_version: PROMPT_VERSION,
       code_head: head.trim(), code_sha256: code, events_file_sha256: original_sha256,
       model_context_policy: 'last_96_candles_and_6h_12h_24h_features_from_frozen_14_days', visibility: 'LOCAL_ONLY' };

@@ -1,0 +1,52 @@
+# M1 本地运行与维护
+
+本页描述候选安装入口。当前工程尚在验证，业务维护 PAUSED 保留；命令存在不代表已部署、调度已运行或方法有效。原始输入输出与操作收据仅保存在 LOCAL_ONLY 位置。
+
+## 开发续接
+
+既有 chart-mvp 已获用户允许自动续接 Issue15，每小时12分、gpt-6-astra/medium，由监督侧管理其官方配置。自然触发使用真实 scheduled；交互实施使用 manual。每轮先核对检查点/文件指纹，持有自己的 executor 锁后同步远端。一个工作片目标不超过40分钟，结束所有自有命令、保存检查点后正常释放自己的锁。旧一行修正限制已由最新授权取代，不重复领取 Issue15、不伪造 owner review。
+
+## 候选包与安装
+
+包从精确 Git 提交导出并重新构建，使用单独锁定的运行依赖；合成验证包标为 synthetic，禁止激活。开发 checkout、runtime_home、data_root 分开；runtime_home/current.json 只指向已核验 release。正式激活需要维护者对精确 build SHA/release ID 的批准来源，仍不可自行合并 main 或提前切包。
+
+在本地填好安装配置并保留 forecast_paused、ops_paused、service_paused=true。backup.target 必须已经存在且在生产数据与运行目录之外；记录实际 device_id，未挂载或身份变化将拒绝备份，不创建替代目录。绝对本机路径只进入 installation.local.json。
+
+开发管理入口（参数以本地实际路径代入）：
+
+```sh
+node --import tsx scripts/m1-admin.mjs verify PACKAGE
+node --import tsx scripts/m1-admin.mjs stage PACKAGE RUNTIME_HOME
+node --import tsx scripts/m1-admin.mjs activate RUNTIME_HOME RELEASE_ID APPROVAL_JSON CONFIG_JSON
+```
+
+stage 只复制候选；activate 在业务互斥下要求展示服务已停止，保存旧指针、批准记录、稳定 launcher，并切为暂停配置。审批材料不能由实施者虚构。安装后的稳定入口为：
+
+```sh
+node RUNTIME_HOME/launch.mjs RUNTIME_HOME doctor
+node RUNTIME_HOME/launch.mjs RUNTIME_HOME forecast
+node RUNTIME_HOME/launch.mjs RUNTIME_HOME ops
+node RUNTIME_HOME/launch.mjs RUNTIME_HOME backup
+```
+
+launcher 每轮只读取一次 current；运行中不重新选择版本。forecast 只接受原计划 slot，重复 slot 不重新生成。人工验证通过 MFV_TRIGGER=manual 留源；调度入口按真实触发传 scheduled。
+
+## 服务与故障
+
+展示服务只监听配置的127.0.0.1端口，GET白名单且静态资源每次回读哈希。管理命令 service-status、service-start、service-stop 后接 RUNTIME_HOME。启动/停止通过独立控制锁串行化，以 PID、进程身份及 health token 核对自己的服务。未知监听者、PID身份冲突、未知控制锁均保留现场，不杀进程或换端口。ops 只在确认原有服务已退出且 service_paused=false 时有界重启，30分钟最多3次。
+
+已持有端口但不健康的服务不会被自动杀掉；保留日志并报告。服务暂停与预测暂停独立。自动调度全部停止期间不能承诺实时故障通知。
+
+rollback RUNTIME_HOME 只回到 previously approved 的旧 release，仍要求先停止自己的服务并保持业务暂停；旧证据不删除，恢复后重新核验 health/release/旧档回放，再由维护者决定恢复业务。
+
+## 备份与恢复
+
+备份短暂持有业务锁捕获稳定文件，并二次核对捕获期间的字节；释放业务锁后通过独立备份锁复制和校验对象，最后提交 manifest。覆盖行情原始分页、正式/候选预测、核对结果、案例/实验/补充输入、控制与运行记录，以及 runtime 安装/release 信息。日志变化使本次捕获失败，不能把变化尾部写成稳定备份。
+
+每日 backup slot 去重；周日启动恢复检查，未完成检查后续轮继续。恢复到新隔离目录，逐对象校验并保存游标；每批有时间/对象上限。回放原预测、重算已有核对及读取案例后才写完整恢复收据。运行指针、安装配置、活动 owner 和任务状态不会恢复为可运行状态。源沙盒删除/篡改演练不触碰真实原档。
+
+同盘副本仅为 local-recovery。外部故障域必须按真实备份设备另行验收；不自动删除原档或旧备份、不上传原始材料。剩余空间不足则拒绝大备份并保留失败。
+
+## 交付状态
+
+分别报告工程验证、安装版真实单轮、至少两期自然运行、方法效果。测试成功、配置 ACTIVE、历史预测可读均不能替代后面三项证据。合并/正式切包前准备精确提交、CI、审查记录、候选包与配置差异供维护者确认。

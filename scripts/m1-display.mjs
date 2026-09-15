@@ -8,6 +8,7 @@ import { rawOutputJsonSchema, validateModelOutput } from '../src/m1-contracts.ts
 import { displayRunSchema, indexSchema, publishedForecastSchema, runIdSchema, runtimeDisplaySchema } from '../src/m1-display.ts';
 import { readFrozen, readPublished } from './m1-archive.mjs';
 import { createOutcomeStore } from './m1-outcome-store.mjs';
+import {dataReference} from './m1-files.mjs';import{effectiveEvents}from'./m1-supplementary.mjs';
 
 const defaultRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const check = (condition, message = 'ARCHIVE_INVALID') => { if (!condition) throw Error(message); };
@@ -26,15 +27,16 @@ const runtimeReleaseFiles = [
 ];
 
 /** Local read-only access. No downloads, model calls, manifests or index writes. */
-export function createDisplayReader({ root = defaultRoot, runsRoot = join(root, 'artifacts/forecast-runs') } = {}) {
-  root = resolve(root); runsRoot = resolve(runsRoot);
-  check(inside(runsRoot, join(root, 'artifacts')) && runsRoot !== join(root, 'artifacts'));
+export function createDisplayReader({ root = defaultRoot, dataRoot = process.env.MFV_DATA_ROOT??join(root,'artifacts'), runsRoot = join(dataRoot, 'forecast-runs') } = {}) {
+  root = resolve(root); dataRoot=resolve(dataRoot); runsRoot = resolve(runsRoot);
+  check(inside(runsRoot,dataRoot)&&runsRoot!==dataRoot);
 
   async function safePath(file, directory = false) {
-    check(inside(file, root));
-    check(await realpath(root) === root, 'SYMLINK_FORBIDDEN');
-    const pieces = relative(root, file).split(sep);
-    let current = root;
+    const base=inside(file,dataRoot)?dataRoot:root;
+    check(inside(file,base));
+    check(await realpath(base) === base, 'SYMLINK_FORBIDDEN');
+    const pieces = relative(base, file).split(sep);
+    let current = base;
     for (let index = 0; index < pieces.length; index++) {
       current = join(current, pieces[index]);
       const stat = await lstat(current);
@@ -70,16 +72,16 @@ export function createDisplayReader({ root = defaultRoot, runsRoot = join(root, 
     for (const name of ['manifest.json', 'input.json', 'output-schema.json', 'provenance.json']) await json(join(directory, name));
     await bytes(join(directory, 'prompt.txt'));
     const input = await json(join(directory, 'input.json'));
-    check(keys(input, ['schema_version', 'history', 'anchor_time', 'anchor_price', 'features', 'events', 'model_context']) && input.schema_version === 'm1-input.0');
+    check(keys(input, ['schema_version','history','anchor_time','anchor_price','features','events','model_context',...(input.schema_version==='m1-input.1'?['supplementary']:[])])&&['m1-input.0','m1-input.1'].includes(input.schema_version));
     check(Array.isArray(input.history?.source?.raw_responses) && Array.isArray(input.events?.sources));
     for (const record of input.history.source.raw_responses) {
       check(typeof record.path === 'string' && /^artifacts\/data-source\/[a-zA-Z0-9_-]+\/page-\d+\.json$/.test(record.path));
-      await bytes(resolve(root, record.path));
+      await bytes(dataReference(record.path,dataRoot));
     }
     for (const source of input.events.sources) {
       check(typeof source.raw_path === 'string' && !isAbsolute(source.raw_path)
         && !source.raw_path.includes('\\') && !source.raw_path.split('/').includes('..'));
-      const file = resolve(root, source.raw_path);
+      const file = dataReference(source.raw_path,dataRoot);
       check(inside(file, directory) && /^events-source-\d{3}\.raw$/.test(relative(directory, file)));
       await bytes(file);
     }
@@ -109,12 +111,12 @@ export function createDisplayReader({ root = defaultRoot, runsRoot = join(root, 
     check(published, 'PUBLICATION_MISSING');
     const history = await validateHistory(frozen.input.history);
     const forecast = publishedForecastSchema.parse(published.forecast);
-    const receipt = published.receipt;
+    const receipt = published.receipt;const eventData=effectiveEvents(frozen.input);
     check(forecast.anchor_time === frozen.input.anchor_time && forecast.anchor_price === frozen.input.anchor_price
       && forecast.information_frozen_at === frozen.manifest.information_frozen_at
-      && forecast.event_cutoff === (frozen.input.events.information_cutoff ?? null)
-      && forecast.event_mode === frozen.input.events.mode
-      && (forecast.event_risk_label !== '未纳入事件风险') === (frozen.input.events.event_risk_incorporated === true));
+      && forecast.event_cutoff === (eventData.information_cutoff ?? null)
+      && forecast.event_mode === eventData.mode
+      && (forecast.event_risk_label !== '未纳入事件风险') === (eventData.event_risk_incorporated === true));
     for (const key of ['run_id', 'status', 'published_at', 'generation_started_at', 'generation_ended_at',
       'information_frozen_at', 'data_cutoff', 'event_cutoff', 'event_mode', 'method_version', 'prompt_version']) check(receipt[key] === forecast[key]);
     check(receipt.schema === 'MFV:M1_PUBLICATION_RECEIPT:v1' && receipt.local_only === true
@@ -128,7 +130,8 @@ export function createDisplayReader({ root = defaultRoot, runsRoot = join(root, 
     const rawOutput = validateModelOutput(await json(join(directory, receipt.attempt_id, 'raw-output.json')),
       { anchor_time: frozen.input.anchor_time, anchor_price: frozen.input.anchor_price });
     const projection = Object.fromEntries(Object.keys(rawOutput).map(key => [key, forecast[key]]));
-    projection.scenarios = forecast.scenarios.map(({ points: _points, ...value }) => value);
+    projection.scenarios = forecast.scenarios.map(({ points: _points, ...value },i) => forecast.calibration?{...value,probability_24h:forecast.calibration.raw_probabilities[i]}:value);
+    if(forecast.calibration){const learning=frozen.input.model_context?.learning;check(learning&&learning.lambda===forecast.calibration.lambda&&canonical(learning.base.probabilities)===canonical(forecast.calibration.base),'CALIBRATION_FROZEN_INPUT_MISMATCH');}
     projection.stages = forecast.stages.map(({ start_time: _start, end_time: _end, ...value }) => value);
     check(canonical(projection) === canonical(rawOutput), 'MODEL_PUBLICATION_MISMATCH');
     // Whitelist the response; never spread input, source records, provenance or receipts.
@@ -138,10 +141,11 @@ export function createDisplayReader({ root = defaultRoot, runsRoot = join(root, 
         price_type: history.price_type, bar_seconds: history.bar_seconds, start_time: history.start_time,
         end_time: history.end_time, count: history.count, candles: history.candles,
         source: { provider: history.source.provider, endpoint: history.source.endpoint }, downloaded_at: history.downloaded_at },
+      ...(frozen.input.model_context?.learning||frozen.input.supplementary?{basis:{feedback_mode:frozen.input.model_context?.learning?.feedback_mode??'F0',case_ids:frozen.input.model_context?.learning?.feedback?.case_ids??[],base_count:frozen.input.model_context?.learning?.base?.n??0,base_cutoff:frozen.input.model_context?.learning?.base?.cutoff??null,derivatives_collected:frozen.input.supplementary?.derivatives?.items?.filter(x=>x.status==='collected').length??0,derivatives_incorporated:frozen.input.supplementary?.derivatives?.incorporated??false,calendar_collected:frozen.input.supplementary?.calendar?.items?.length??0,calendar_included:frozen.input.supplementary?.calendar?.included?.length??0}}:{}),
       forecast, model: { config: receipt.model_config, identity: receipt.model_identity, identity_visibility: receipt.model_identity_visibility },
       hashes: { input_sha256: receipt.input_sha256, forecast_sha256: receipt.forecast_sha256 }, evaluation: { status: 'not_evaluated' },
     });
-    return includeEvaluation ? displayRunSchema.parse({ ...result, evaluation: await createOutcomeStore({ root }).readLatest(result) }) : result;
+    return includeEvaluation ? displayRunSchema.parse({ ...result, evaluation: await createOutcomeStore({ root, dataRoot, runsRoot }).readLatest(result) }) : result;
   }
   async function runState(id, checkedAt) {
     // A malformed run.json stays visible as invalid without returning its bytes/error.
@@ -206,7 +210,7 @@ export function createDisplayReader({ root = defaultRoot, runsRoot = join(root, 
       latest_attempt: latest ? { run_id: latest.run_id, created_at: latest.created_at, status: latest.status, reason: latest.reason } : null, runs });
   }
   async function readRuntime({ now = new Date().toISOString() } = {}) {
-    const runtimeRoot = join(root, 'artifacts/m1-runtime');
+    const runtimeRoot = join(dataRoot, 'm1-runtime');
     const optional = async name => {
       const file = join(runtimeRoot, name);
       return await exists(file) ? await json(file) : null;
@@ -263,7 +267,8 @@ export function createDisplayReader({ root = defaultRoot, runsRoot = join(root, 
       } : null,
     });
   }
-  return { readRun, readIndex, readRuntime };
+  const listRunIds=async()=>await exists(runsRoot)?(await readdir(await safePath(runsRoot,true))).filter(id=>runIdSchema.safeParse(id).success).sort().reverse():[];
+  return { readRun, readIndex, readRuntime,listRunIds,runState };
 }
 
 /** A tiny Vite middleware used identically by dev and preview, without a static archive mount. */

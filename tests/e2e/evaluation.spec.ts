@@ -8,7 +8,7 @@ import type { Candle } from '../../src/contracts';
 
 const snapshot=(page:Page)=>page.evaluate(()=>(window as any).chartTest.snapshot());
 const at=(seconds:number)=>new Date(seconds*1000).toISOString();
-const realRunId='m1-20260912T183644170Z-571e6089-d6eb-4a8d-beb4-37b70593aad1';
+const realRunId='m1-20260912T183644170Z-00000000-0000-4000-8000-000000000011';
 const fixtureRunId='m1-20260913T030000000Z-00000000-0000-4000-8000-000000000013';
 
 /** Browser-only synthetic values; never archived, published, or used as actual outcome evidence. */
@@ -61,10 +61,10 @@ async function actualAligned(page:Page){
  expect(visible).toBeGreaterThan(0);return state;
 }
 
-test('真实原run实际叠加与6h成熟核对，预测hash和24h概率不变',async({page,request},info)=>{
+test('SYNTHETIC归档实际叠加与6h成熟核对，预测hash和24h概率不变',async({page,request},info)=>{
  const run:DisplayRun=await (await request.get('/api/m1/runs/'+realRunId)).json();
- expect(run.evaluation.status,'Must run after a real archived evaluation; no synthetic substitute').toBe('available');
- if(run.evaluation.status!=='available')throw Error('Real evaluation is required');
+ expect(run.evaluation.status,'Portable SYNTHETIC evaluation fixture required').toBe('available');
+ if(run.evaluation.status!=='available')throw Error('SYNTHETIC evaluation is required');
  expect(run.evaluation.result.windows.h6.status).toBe('mature');expect(run.evaluation.result.forecast_hash).toBe(run.hashes.forecast_sha256);
  const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));await openExperiment(page);
  await expect.poll(async()=>(await snapshot(page)).runId).toBe(realRunId);

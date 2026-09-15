@@ -8,6 +8,7 @@ import { z } from 'zod';
 import { canonical, parseStrict } from '../src/contracts.ts';
 import { evaluateForecast, evaluationSchema, EVALUATION_VERSION } from '../src/m1-evaluation.ts';
 import { normalizeRows } from './data-utils.mjs';
+import {legacyScorer}from'./m1-compat.mjs';
 
 const execute = promisify(execFile);
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
@@ -32,14 +33,15 @@ const revisionSchema = object({ schema: z.literal('MFV:M1_EVALUATION_REVISION:v1
   evaluation_code_sha256: hash, local_only: z.literal(true) });
 
 /** Only this explicit command layer writes outcomes. HTTP readers never acquire data. */
-export function createOutcomeStore({ root = process.cwd(), stateRoot = join(root, 'artifacts/m1-outcomes') } = {}) {
-  root = resolve(root); stateRoot = resolve(stateRoot);
+export function createOutcomeStore({ root = process.cwd(), dataRoot=process.env.MFV_DATA_ROOT??join(root,'artifacts'), runsRoot=join(dataRoot,'forecast-runs'), stateRoot = join(dataRoot, 'm1-outcomes') } = {}) {
+  root = resolve(root);dataRoot=resolve(dataRoot); stateRoot = resolve(stateRoot);
   const inside = file => { const part = relative(root, file); return part && part !== '..' && !part.startsWith(`..${sep}`) && !isAbsolute(part); };
-  check(inside(stateRoot) && relative(root, stateRoot).startsWith(`artifacts${sep}`));
+  check(stateRoot.startsWith(dataRoot+sep));
   async function safe(file, missing = false) {
-    check(inside(file) && await realpath(root) === root, 'OUTCOME_PATH_INVALID');
-    let current = root;
-    for (const part of relative(root, file).split(sep)) {
+    const base=file.startsWith(dataRoot+sep)?dataRoot:root;
+    check((file.startsWith(base+sep)) && await realpath(base) === base, 'OUTCOME_PATH_INVALID');
+    let current = base;
+    for (const part of relative(base, file).split(sep)) {
       current = join(current, part);
       try { check(!(await lstat(current)).isSymbolicLink(), 'OUTCOME_SYMLINK_FORBIDDEN'); }
       catch (error) { if (missing && error.code === 'ENOENT') return file; throw error; }
@@ -59,13 +61,13 @@ export function createOutcomeStore({ root = process.cwd(), stateRoot = join(root
   function capturePath(run, id) { check(idPattern.test(id) && id.startsWith('capture-')); return join(folder(run), 'captures', id); }
   function revisionPath(run, id) { check(idPattern.test(id) && id.startsWith('evaluation-')); return join(folder(run), 'evaluations', id); }
   const newId = prefix => `${prefix}-${new Date().toISOString().replace(/[-:.]/g, '')}-${randomUUID()}`;
-  async function getPage({ url, file }) {
+  async function getPage({ url, file, signal,deadline=Infinity }) {
     // Existing network configuration and normal TLS verification are preserved; bounded, no account API.
     const { stdout } = await execute('curl', ['--fail-with-body', '--silent', '--show-error', '--max-time', '25',
-      '--output', file, '--write-out', '%{http_code}', url], { timeout: 30000, maxBuffer: 1024 * 1024 });
+      '--output', file, '--write-out', '%{http_code}', url], { timeout: Math.max(1,Math.min(30000,deadline-performance.now())), signal, maxBuffer: 1024 * 1024 });
     return stdout.trim();
   }
-  async function capture(run, { transport = getPage } = {}) {
+  async function capture(run, { transport = getPage,signal,deadline=Infinity } = {}) {
     const capture_id = newId('capture'), dir = capturePath(run, capture_id); await directory(dir);
     const started_at = new Date().toISOString();
     const observed_through = Math.max(run.forecast.anchor_time, Math.min(run.forecast.anchor_time + 86400, Math.floor(Date.parse(started_at) / 900000) * 900));
@@ -79,7 +81,7 @@ export function createOutcomeStore({ root = process.cwd(), stateRoot = join(root
       for (let page = 1; observed_through > record.start_time && page <= 3; page++) {
         const params = { instId: 'BTC-USDT-SWAP', bar: '15m', limit: 100, after };
         const file = `page-${String(page).padStart(3, '0')}.json`, requested_at = new Date().toISOString();
-        const http_code = await transport({ url: endpoint + '?' + new URLSearchParams(params), file: join(dir, file) });
+        const http_code = await transport({ url: endpoint + '?' + new URLSearchParams(params), file: join(dir, file),signal,deadline });
         const completed_at = new Date().toISOString(); check(http_code === '200', 'OUTCOME_HTTP_FAILED');
         const raw = await bytes(join(dir, file)), body = parseStrict(raw.toString('utf8'));
         check(body.code === '0' && Array.isArray(body.data), 'OUTCOME_RESPONSE_FAILED');
@@ -123,7 +125,7 @@ export function createOutcomeStore({ root = process.cwd(), stateRoot = join(root
     return { record, candles, quality: normalized.quality, sha256: digest(raw) };
   }
   async function methodCode(run) {
-    const provenance = await json(join(root, 'artifacts/forecast-runs', run.run_id, 'provenance.json'));
+    const provenance = await json(join(runsRoot, run.run_id, 'provenance.json'));
     const current = digest(await bytes(join(root, 'src/m1-contracts.ts')));
     check(provenance.code_sha256?.['src/m1-contracts.ts'] === current, 'FROZEN_CLASSIFIER_CODE_CHANGED');
     return current;
@@ -134,10 +136,13 @@ export function createOutcomeStore({ root = process.cwd(), stateRoot = join(root
     const source = await readCapture(run, meta.capture_id); check(source.record.status === 'ok' && source.sha256 === meta.capture_sha256);
     const resultBytes = await bytes(join(dir, 'result.json')); check(digest(resultBytes) === meta.result_sha256, 'EVALUATION_HASH_MISMATCH');
     const result = evaluationSchema.parse(parseStrict(resultBytes.toString('utf8')));
-    check(meta.method_code_sha256 === await methodCode(run), 'EVALUATION_METHOD_CHANGED');
-    check(meta.evaluation_code_sha256 === digest(await bytes(join(root, 'src/m1-evaluation.ts'))), 'EVALUATION_CODE_CHANGED');
+    const provenance=await json(join(runsRoot,run.run_id,'provenance.json'));
+    check(meta.method_code_sha256===provenance.code_sha256?.['src/m1-contracts.ts'],'EVALUATION_METHOD_CHANGED');
+    const sameCurrent=meta.evaluation_code_sha256 === digest(await bytes(join(root, 'src/m1-evaluation.ts')));
+    const scorer=!run.forecast.calibration?await legacyScorer({classifierHash:meta.method_code_sha256,scorerHash:meta.evaluation_code_sha256}):evaluateForecast;
+    check(sameCurrent||!run.forecast.calibration,'EVALUATION_CODE_CHANGED');
     check(Date.parse(meta.evaluated_at) >= Date.parse(source.record.completed_at));
-    const computed = evaluateForecast({ forecast: run.forecast, forecastHash: run.hashes.forecast_sha256,
+    const computed = scorer({ forecast: run.forecast, forecastHash: run.hashes.forecast_sha256,
       candles: source.candles, observedThrough: source.record.observed_through, evaluatedAt: meta.evaluated_at });
     check(canonical(computed) === canonical(result), 'EVALUATION_RECOMPUTE_MISMATCH');
     return { status: 'available', revision_id: id, evaluation_sha256: meta.result_sha256, result };
@@ -151,7 +156,7 @@ export function createOutcomeStore({ root = process.cwd(), stateRoot = join(root
     const method_code_sha256 = await methodCode(run), evaluation_code_sha256 = digest(await bytes(join(root, 'src/m1-evaluation.ts')));
     for (const id of await revisionIds(run)) {
       const meta = revisionSchema.parse(await json(join(revisionPath(run, id), 'manifest.json')));
-      if (meta.capture_sha256 === source.sha256 && meta.evaluation_code_sha256 === evaluation_code_sha256) return readRevision(run, id);
+      if(meta.evaluation_code_sha256===evaluation_code_sha256){const old=await readCapture(run,meta.capture_id);if(old.record.status==='ok'&&old.record.observed_through===source.record.observed_through&&canonical(old.candles)===canonical(source.candles)&&canonical(old.quality)===canonical(source.quality))return readRevision(run,id);}
     }
     const revision_id = newId('evaluation'), evaluated_at = new Date().toISOString();
     const result = evaluateForecast({ forecast: run.forecast, forecastHash: run.hashes.forecast_sha256,
@@ -204,10 +209,10 @@ export function createOutcomeStore({ root = process.cwd(), stateRoot = join(root
         }
         if (!latest) return { status: 'not_evaluated' };
         const meta = revisionSchema.parse(await json(join(revisionPath(run, latest), 'manifest.json')));
-        if (meta.capture_id !== captures.at(-1)) return { status: 'failed', reason: 'evaluation_incomplete' };
+        if(meta.capture_id!==captures.at(-1)){const old=await readCapture(run,meta.capture_id);if(old.record.observed_through!==source.record.observed_through||canonical(old.candles)!==canonical(source.candles)||canonical(old.quality)!==canonical(source.quality))return{status:'failed',reason:'evaluation_incomplete'};}
       }
       return latest ? await readRevision(run, latest) : { status: 'not_evaluated' };
-    } catch { return { status: 'failed', reason: 'evaluation_invalid' }; }
+    } catch(error) { return { status: 'failed', reason:error.message==='UNKNOWN_SCORER'?'evaluation_unsupported':'evaluation_invalid' }; }
   }
   return { capture, readCapture, evaluateCapture, readRevision, readLatest };
 }

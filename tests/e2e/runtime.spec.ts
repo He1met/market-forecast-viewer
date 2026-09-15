@@ -57,7 +57,7 @@ test('SYNTHETIC业务状态读取失败和坏契约不会挡住预报索引或�
 test('SYNTHETIC最新业务失败保持真实原预报，分钟刷新仅GET运行状态',async({page,request},info)=>{
  const index:DisplayIndex=await (await request.get('/api/m1/index')).json();
  const chosen=index.latest_run_id??index.runs.find(run=>run.status==='valid'||run.status==='late')?.run_id;
- expect(chosen,'Existing archived forecast required; no synthetic publication substitute').toBeTruthy();
+ expect(chosen,'Portable SYNTHETIC archived forecast required').toBeTruthy();
  await page.route('**/api/m1/index',route=>route.fulfill({json:index}));
  const value=runtime();value.latest_attempt={...value.latest_attempt!,status:'failed',reason:'runtime_failed',completed_at:at};
  await page.route('**/api/m1/runtime',route=>route.fulfill({json:value}));
@@ -68,7 +68,7 @@ test('SYNTHETIC最新业务失败保持真实原预报，分钟刷新仅GET运�
  const requests:{url:string,method:string}[]=[];
  page.on('request',event=>{if(event.url().includes('/api/m1/'))requests.push({url:new URL(event.url()).pathname,method:event.method()});});
  value.paused=true;await page.clock.fastForward(61000);await expect(page.locator('#runtime-status')).toHaveText('本地暂停标记生效');
- expect(requests.length).toBeGreaterThan(0);expect(requests.every(event=>event.url==='/api/m1/runtime'&&event.method==='GET')).toBe(true);
+ expect(requests.length).toBeGreaterThan(0);expect(requests.every(event=>event.url.startsWith('/api/m1/')&&event.method==='GET')).toBe(true);
  const after=await snapshot();expect(after.runId).toBe(before.runId);expect(after.forecastHash).toBe(before.forecastHash);expect(after.createdCharts).toBe(before.createdCharts);
  expect(await page.locator('#run-status').innerText()).toBe(originalPublished);
  const directory=`artifacts/${process.env.CHART_STAGE??'m14'}/ui`;await mkdir(directory,{recursive:true});

@@ -135,9 +135,8 @@ test('rejects run-directory symlink escapes without writing outside artifacts', 
   const f = await fixture(t); const link = join(f.root, 'run-escape'); await symlink(project, link);
   await assert.rejects(() => validateAndCopyEvents(f.eventsFile, link), /ARTIFACT_SYMLINK_ESCAPE/);
 });
-test('allows internal source aliases only when their real targets remain in artifacts', async t => {
+test('rejects internal symlink aliases under the stable data-root contract', async t => {
   const f = await fixture(t); const link = join(f.root, 'inside.raw'); await symlink(f.raw, link);
   const name = relative(project, link); f.events.sources[0].raw_path = name; f.events.items[0].raw_path = name; await f.save();
-  const { events } = await validateAndCopyEvents(f.eventsFile, f.runDir);
-  assert.equal(events.items[0].raw_path, relative(project, join(f.runDir, 'events-source-001.raw')));
+  await assert.rejects(()=>validateAndCopyEvents(f.eventsFile,f.runDir),/ARTIFACT_SYMLINK_ESCAPE/);
 });

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, realpath, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { newRun, freezeInput, readFrozen, assertFrozenCode, prepareAttempt, completeAttempt, publishRun, readPublished } from '../scripts/m1-archive.mjs';
@@ -10,7 +10,7 @@ import { METHOD_VERSION, PROMPT_VERSION, CATEGORY_IDS, rawOutputJsonSchema } fro
 const hash = value => createHash('sha256').update(value).digest('hex');
 const json = value => JSON.stringify(value, null, 2) + '\n';
 async function fixture(t, { late = false } = {}) {
-  const root = await mkdtemp(join(tmpdir(), 'mfv-m1-archive-'));
+  const root = await mkdtemp(join(await realpath(tmpdir()), 'mfv-m1-archive-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const { runDir, run_id } = await newRun(root);
   const codeFile = join(runDir, 'method-fixture.mjs'); await writeFile(codeFile, '// original fixture method\n');

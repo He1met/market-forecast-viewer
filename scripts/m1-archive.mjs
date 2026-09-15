@@ -2,6 +2,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { lstat, mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {configuredRoots,dataReference,safePath} from './m1-files.mjs';
+import{shrink,mainScenario}from'./m1-learning.mjs';import{effectiveEvents}from'./m1-supplementary.mjs';
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const frozenNames = ['run.json', 'input.json', 'prompt.txt', 'output-schema.json', 'provenance.json'];
@@ -31,7 +33,7 @@ async function runMetadata(runDir) {
 }
 async function sourceFiles(input, runDir) {
   const records = [
-    ...(input.history?.source?.raw_responses ?? []),
+    ...(input.history?.source?.raw_responses ?? []),...(input.supplementary?.source_files??[]),
     ...(input.events?.sources ?? []).map(source => ({ path: source.raw_path, sha256: source.raw_sha256 })),
   ];
   check(Array.isArray(records), 'INVALID_SOURCE_RECORDS');
@@ -39,8 +41,10 @@ async function sourceFiles(input, runDir) {
   const result = [];
   for (const record of records) {
     check(typeof record.path === 'string' && /^[a-f0-9]{64}$/.test(record.sha256), 'INVALID_SOURCE_REFERENCE');
-    const file = resolve(projectRoot, record.path);
-    check(within(file, join(projectRoot, 'artifacts', 'data-source')) || within(file, runDir), 'SOURCE_MUST_BE_LOCAL_ONLY');
+    const dataRoot=configuredRoots().data_root;
+    const file = isAbsolute(record.path)&&within(record.path,runDir)?record.path:dataReference(record.path,dataRoot);
+    await safePath(within(file,runDir)?runDir:dataRoot,file);
+    check(within(file, join(dataRoot, 'data-source')) || within(file, join(dataRoot,'m1-calendar'))||within(file,join(dataRoot,'m1-derivatives'))||within(file, runDir), 'SOURCE_MUST_BE_LOCAL_ONLY');
     check(!paths.has(file), 'DUPLICATE_SOURCE_REFERENCE'); paths.add(file);
     check(digest(await bytes(file)) === record.sha256, 'SOURCE_HASH_MISMATCH');
     result.push({ path: record.path, sha256: record.sha256 });
@@ -49,7 +53,7 @@ async function sourceFiles(input, runDir) {
 }
 
 /** Create a unique local run; no existing file or run is reused. */
-export async function newRun(root = 'artifacts/forecast-runs') {
+export async function newRun(root = join(configuredRoots().data_root,'forecast-runs')) {
   const directory = localOnly(root);
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const created_at = now();
@@ -210,21 +214,26 @@ export async function publishRun(runDir, rawFile, generationInfo) {
   const raw = await bytes(rawFile);
   check(digest(raw) === generation.raw_output_sha256, 'RAW_OUTPUT_HASH_MISMATCH');
   const validated = await validateModelOutput(parseStrict(raw.toString('utf8')), { anchor_time: input.anchor_time, anchor_price: input.anchor_price });
+  const eventData=effectiveEvents(input);
+  const learning=input.model_context?.learning;
+  const rawProbabilities=validated.scenarios.map(x=>x.probability_24h);
+  const finalProbabilities=learning?shrink(rawProbabilities,learning.base.probabilities,learning.lambda):rawProbabilities;
+  const calibration=learning?{schema:'MFV:CALIBRATION:v1',lambda:learning.lambda,base:learning.base.probabilities,raw_probabilities:rawProbabilities,raw_main:mainScenario(rawProbabilities),final_main:mainScenario(finalProbabilities)}:null;
   const published_at = now();
   check(Date.parse(frozen.information_frozen_at) <= Date.parse(generation.started_at) && Date.parse(generation.ended_at) <= Date.parse(published_at), 'INVALID_GENERATION_TIME');
   const status = classifyPublication(input.anchor_time, published_at);
   const forecast = {
-    ...validated, kind: 'experimental_forecast', run_id: frozen.run_id,
+    ...validated,...(calibration?{calibration}:{}), kind: 'experimental_forecast', run_id: frozen.run_id,
     published_at, generation_started_at: generation.started_at, generation_ended_at: generation.ended_at,
     information_frozen_at: frozen.information_frozen_at, status, eligible_as_latest: status === 'valid',
-    data_cutoff: input.anchor_time, event_cutoff: input.events?.information_cutoff ?? null,
-    event_mode: input.events?.mode ?? 'market_only',
-    event_risk_label: input.events?.event_risk_incorporated === true ? '已纳入所列事件信息，其他风险未知' : '未纳入事件风险',
+    data_cutoff: input.anchor_time, event_cutoff: eventData?.information_cutoff ?? null,
+    event_mode: eventData?.mode ?? 'market_only',
+    event_risk_label: eventData?.event_risk_incorporated === true ? '已纳入所列事件信息，其他风险未知' : '未纳入事件风险',
     probability_kind: 'subjective_uncalibrated', probability_label: '主观未校准；24h 类别概率仅用于 24h',
     range_kind: 'model_range_estimate', range_label: '模型范围估计，未经校准',
     path_label: '代表路径不是类别的全部可能路径；显示插值不是成交轨迹',
     step_seconds: 900, horizon_seconds: 86400, future_count: 96,
-    scenarios: validated.scenarios.map(scenario => ({ ...scenario, points: scenario.prices.map((price, index) => ({ time: input.anchor_time + (index + 1) * 900, price })) })),
+    scenarios: validated.scenarios.map((scenario,index) => ({ ...scenario,probability_24h:finalProbabilities[index], points: scenario.prices.map((price, index) => ({ time: input.anchor_time + (index + 1) * 900, price })) })),
     stages: validated.stages.map(stage => ({ ...stage, start_time: input.anchor_time + (stage.start_step - 1) * 900, end_time: input.anchor_time + stage.end_step * 900 })),
   };
   const forecastBytes = encode(forecast);
@@ -236,7 +245,7 @@ export async function publishRun(runDir, rawFile, generationInfo) {
     attempt_receipt_sha256: digest(await bytes(join(attemptDir, 'receipt.json'))),
     generation_started_at: generation.started_at, generation_ended_at: generation.ended_at,
     information_frozen_at: frozen.information_frozen_at, data_cutoff: input.anchor_time,
-    event_cutoff: input.events?.information_cutoff ?? null, event_mode: input.events?.mode ?? 'market_only',
+    event_cutoff: eventData?.information_cutoff ?? null, event_mode: eventData?.mode ?? 'market_only',
     method_version: validated.method_version, prompt_version: validated.prompt_version,
     model_config: generation.model_config, model_identity: generation.model_identity,
     model_identity_visibility: generation.model_identity_visibility, local_only: true,

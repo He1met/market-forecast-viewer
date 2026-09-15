@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import type { DisplayIndex, DisplayRun } from '../../src/m1-display';
 const snapshot=(page:Page)=>page.evaluate(()=>(window as any).chartTest.snapshot());
-const runId='m1-20260912T183644170Z-571e6089-d6eb-4a8d-beb4-37b70593aad1';
+const runId='m1-20260912T183644170Z-00000000-0000-4000-8000-000000000011';
 async function openExperiment(page:Page){await page.goto('/?test=1');await expect(page.locator('#load-status')).toContainText('已校验');await page.getByLabel('查看内容',{exact:true}).selectOption('experiment');await expect(page.locator('#load-status')).toContainText('实验档案已校验');await expect.poll(async()=>(await snapshot(page)).runId).toBe(runId);}
 async function stageAligned(page:Page){await expect.poll(async()=>(await snapshot(page)).stageRendered.length).toBe(3);await expect.poll(async()=>{const state=await snapshot(page);return Math.max(...state.stageRendered.flatMap((actual:any)=>{const expected=state.stageCoordinateCheck.find((x:any)=>x.id===actual.id);return ['startX','endX','lowerY','upperY'].map(key=>expected?.[key]===null?Infinity:Math.abs(actual[key]-expected[key]));}));}).toBeLessThanOrEqual(1);const s=await snapshot(page);expect(s.rangeKind).toBe('model_range_estimate');expect(s.vertices).toEqual([]);for(const actual of s.stageRendered){const expected=s.stageCoordinateCheck.find((x:any)=>x.id===actual.id);for(const key of ['startX','endX','lowerY','upperY']){expect(expected[key]).not.toBeNull();expect(Math.abs(actual[key]-expected[key])).toBeLessThanOrEqual(1);}if(expected.candleY!==null)expect(Math.abs(expected.upperY-expected.candleY)).toBeLessThanOrEqual(1);}return s;}
 async function evidence(page:Page,name:string,project:string){const directory=`artifacts/${process.env.CHART_STAGE??'m12'}`;await mkdir(directory,{recursive:true});const file=`${directory}/${name}-${project}.png`;await page.screenshot({path:file,fullPage:true});await writeFile(file+'.json',JSON.stringify({visibility:'LOCAL_ONLY',user_approved:false,run_id:runId,screenshot_sha256:createHash('sha256').update(await readFile(file)).digest('hex'),viewport:page.viewportSize(),dpr:await page.evaluate(()=>devicePixelRatio),snapshot:await snapshot(page)},null,2));}
@@ -26,7 +26,7 @@ async function chartResizeSettled(page:Page){
  })).toMatchObject({chartReady:true,widthMatches:true,heightMatches:true,stageCount:3,stagesInPane:true});
 }
 
-test('真实实验run同图显示、单层阶段范围、概率依据与图形交互',async({page},info)=>{
+test('SYNTHETIC实验run同图显示、单层阶段范围、概率依据与图形交互',async({page},info)=>{
  const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));await openExperiment(page);
  await expect(page.locator('.demo-badge')).toContainText('Codex 实验预报');await expect(page.locator('.grid-controls')).toBeHidden();await expect(page.locator('.demo-context')).toBeHidden();
  await expect(page.locator('#legend')).toContainText('未来24h');await expect(page.locator('#experiment-summary')).toContainText('未纳入事件风险');if((await snapshot(page)).evaluationStatus==='available'){await expect(page.locator('#evaluation-status')).toContainText('当次核对');await expect(page.locator('[data-window="h6"]')).toContainText('完整核对');}else await expect(page.locator('#evaluation-status')).toContainText('6h 已到期 · 尚未核对');

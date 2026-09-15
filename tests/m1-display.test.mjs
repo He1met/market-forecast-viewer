@@ -223,7 +223,7 @@ test('plugin refuses non-loopback or CORS configuration and retains every Vite p
   const resolved = await resolveConfig({ root, configFile: join(root, 'vite.config.ts'), logLevel: 'silent' }, 'serve');
   const defaults = await resolveConfig({ root, configFile: false, logLevel: 'silent' }, 'serve');
   for (const pattern of defaults.server.fs.deny) assert.ok(resolved.server.fs.deny.includes(pattern));
-  assert.ok(resolved.server.fs.deny.includes('**/artifacts/**'));
+  assert.ok(resolved.server.fs.deny.includes(`${root.replace(/\/$/, '')}/artifacts/**`));
   await assert.rejects(() => resolveConfig({ root, configFile: join(root, 'vite.config.ts'), logLevel: 'silent', server: { host: '0.0.0.0' } }, 'serve'), /STRICT_LOOPBACK/);
   await assert.rejects(() => resolveConfig({ root, configFile: join(root, 'vite.config.ts'), logLevel: 'silent', server: { cors: true } }, 'serve'), /NO_CORS/);
 });

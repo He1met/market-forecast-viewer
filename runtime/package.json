@@ -1,0 +1,9 @@
+{
+  "name": "mfv-runtime",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "tsx": "4.23.13",
+    "zod": "3.25.76"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "schema": "MFV:COMPAT:v1",
+  "build_id": "48f47be50966b7e1804b364191cfbce6194d1d97",
+  "method_version": "m1-path-events-v1",
+  "scorer_version": "m1-evaluation-v1",
+  "files": {
+    "src/contracts.ts": "2db177741c1e02bb433e175092aee0a2513c6b11117cb884605ffcf39182dea2",
+    "src/m1-contracts.ts": "0a418b6a9d9b0943b92d08804ee30d93b65b7cfe9486f06df2ed4d6b8f0940a9",
+    "src/m1-evaluation.ts": "75d65d064bf1a648ed3a2b07328ac3818fed62e06b741e71def39699a9b6f604",
+    "src/m1-display.ts": "b5eb28d2454c6f5ac82d5b57ddd259fddf07c6e06e0a6a13cfd84dfeae47f990",
+    "scripts/data-utils.mjs": "306853e6cdb8f2af48919fd592348e5a96204e7d9bd48ddbb3b35241f763d7fa",
+    "scripts/m1-archive.mjs": "28f44a4e70e5a956c3931ac05ad403ffba6630a9152d131cb466d6477b011443",
+    "scripts/m1-input.mjs": "fd694235af9868a28a9400aae335f4cd585a8404b8ffbe62ceaa1843230a2205",
+    "scripts/m1-forecast.mjs": "9016c56108a71f3daacbaef25db705ab306a06ac4600889712ab892a680d7a4d",
+    "scripts/m1-events.mjs": "561dc0ea6935012e06d7c3620817b997ee97b2e2c4fcc231d45685e92a0bf65a",
+    "scripts/m1-outcome-store.mjs": "bdbf6783b56ebcc0e1d643cfe333b1388569743272ef80712b796e5135cfd8ba",
+    "scripts/m1-display.mjs": "1ff7faa9d33e62b2cb4c4b025c6e680c0c733eb35ed94b285f0683a4bd5cf166",
+    "scripts/m1-runtime.mjs": "09d1981d78ecad438e2f94846db27ac0171fe54ea071c1ed1e06be618a2c6ce8",
+    "scripts/m1-runtime-events.mjs": "518269ac009de7f16e36a310d34b6cc72d6fb4ad1b862e9bd30e88c6060ea0bf",
+    "scripts/executor.mjs": "21cecda53092e6f3e1af36e928308e9c6f37ab6f7cea340bd6f5a1275ce90317",
+    "docs/M1_FORECAST.md": "e63d97becb487781e1b16230c3c1ac50bf31005a69a946af10ef326ac5f3edef"
+  }
+}

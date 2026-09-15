@@ -1,0 +1,19 @@
+{
+  "schema": "MFV:M1_DEFAULTS:v1",
+  "timezone": "Asia/Shanghai",
+  "instrument": "BTC-USDT-SWAP",
+  "bar_seconds": 900,
+  "horizon_seconds": 86400,
+  "cycle_seconds": 600,
+  "publish_margin_seconds": 30,
+  "attempt_seconds": 240,
+  "minimum_attempt_budget_seconds": 90,
+  "finish_budget_seconds": 15,
+  "ops_seconds": 180,
+  "ops_write_seconds": 120,
+  "ops_max_runs": 16,
+  "calendar_ttl_seconds": 21600,
+  "calendar_max_age_seconds": 43200,
+  "allowed_lambdas": [0, 0.1, 0.25, 0.5],
+  "policy": {"predictor_version":"m1-final-v1","feedback":"F0","lambda":0,"additional_inputs":"none","model":"gpt-6-astra","reasoning_effort":"medium"}
+}

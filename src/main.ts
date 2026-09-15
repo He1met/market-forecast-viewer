@@ -8,9 +8,10 @@ const $ = (id:string) => document.getElementById(id)!;
 let view:WeatherChart|undefined, dataset:Dataset={errors:[]}, request=0, controller:AbortController|undefined;
 $('app').innerHTML=`<header><div class="brand"><span class="brand-icon">◒</span><div><h1>市场天气</h1><p>MARKET WEATHER / BTC</p></div></div><div class="demo-badge">DEMO 演示未来｜非交易信号</div><div class="header-note">本地历史快照 <span class="dot"></span></div></header><main><section class="market-head"><div><span class="eyebrow">OKX · USDT 线性永续</span><h2>BTC <span>/ USDT</span> <small>15m</small></h2></div><div id="metadata" class="metadata">正在读取本地数据…</div></section><section class="chart-shell"><div class="toolbar"><div id="legend"></div><div id="controls"><select id="window" aria-label="未来展示窗口"><option value="6">未来 6h</option><option value="12">未来 12h</option><option value="24" selected>未来 24h</option></select><button id="reset">重置视图</button><select id="timezone" aria-label="显示时区"><option value="local">浏览器时区</option><option value="UTC">UTC</option></select><button id="reload">重载文件</button></div></div><div class="demo-context"><p>未来为固定 DEMO 情景路径，不是本轮 Codex 市场预测；区间未经校准。 <strong>概率：未计算（固定 DEMO）</strong></p><details id="generation"><summary>生成依据</summary><div id="generation-content"></div></details></div><div id="chart" role="img" aria-label="BTC真实历史与DEMO未来图表"></div><div class="chart-foot"><span id="hover">移动十字线查看数据</span><span>滚轮缩放 · 拖动平移 · 拖动右轴缩放价格</span></div></section><div id="errors" role="alert" hidden></div><section class="grid-controls"><div class="grid-picker"><label for="scheme">DEMO 网格方案</label><select id="scheme" aria-label="网格方案"></select><label class="grid-visible"><input id="grid-visible" type="checkbox" checked>显示网格</label></div><div><div id="grid-summary"></div><small id="position-label"></small><p id="grid-position"></p></div><details id="levels"><summary>查看价格层级</summary><div id="level-values"></div></details></section><section id="detail" class="detail"><p>内层 / 外层示意区间 · 未经校准 · 路径仅为固定演示模板</p><span id="load-status" role="status">正在读取文件…</span></section><footer><span>数据来源 <a href="https://www.okx.com/docs-v5/en/#order-book-trading-market-data-get-candlesticks-history" target="_blank" rel="noreferrer">OKX 官方公开接口</a> · <span id="dataset-id"></span></span><span>仅作演示 · <a href="/licenses/index.html" target="_blank">第三方声明</a> · <a href="/licenses/lightweight-charts-LICENSE.txt" target="_blank">Apache-2.0</a> · <a href="https://www.tradingview.com/" target="_blank" rel="noreferrer">TradingView</a></span></footer></main>`;
 let experimentLoadFailed=false;
+let selectionMode:'follow_latest'|'history_pinned'='follow_latest';
 let activeMode:'demo'|'experiment'='demo', experiment:DisplayRun|undefined, experimentIndex:DisplayIndex|undefined;
 const modeBar=document.createElement('section');modeBar.className='mode-bar';
-modeBar.innerHTML='<label>查看内容 <select id="mode" aria-label="查看内容"><option value="demo">固定 DEMO</option><option value="experiment">Codex 实验预报</option></select></label><label id="run-picker" hidden>历史预报 <select id="run" aria-label="历史预报"></select></label><button id="latest" hidden>读取最新索引</button><span id="run-status" role="status"></span>';
+modeBar.innerHTML='<label>查看内容 <select id="mode" aria-label="查看内容"><option value="demo">固定 DEMO</option><option value="experiment">Codex 实验预报</option></select></label><label id="run-picker" hidden>历史预报 <select id="run" aria-label="历史预报"></select></label><button id="latest" hidden>读取最新索引</button><button id="history-more" hidden>更早的30期</button><span id="run-status" role="status"></span>';
 document.querySelector('.chart-shell')!.before(modeBar);
 const runtimePanel=document.createElement('section');runtimePanel.id='runtime-panel';runtimePanel.hidden=true;
 runtimePanel.setAttribute('aria-label','实验预测业务运行状态');
@@ -45,7 +46,7 @@ async function reloadRuntime(){
  catch{if(id!==runtimeRequest)return;runtimePanel.dataset.state='unknown';$('runtime-status').textContent='业务状态读取失败 · 当前状态未知';$('runtime-details').textContent='本次无法读取或校验业务状态。预报图保留已加载快照，不把旧预报视为本次业务成功；可点击“读取最新索引”重试。';}
 }
 const experimentDetails=document.createElement('section');experimentDetails.id='experiment-details';experimentDetails.hidden=true;
-experimentDetails.innerHTML='<div id="experiment-summary"></div><div id="scenario-evidence"></div><section id="evaluation"><h3>实际走势与结果核对</h3><p id="evaluation-status"></p><div id="evaluation-content"></div></section>';
+experimentDetails.innerHTML='<h3>本次预测依据</h3><div id="experiment-summary"></div><div id="scenario-evidence"></div><section id="evaluation"><h3>实际走势与结果核对</h3><p id="evaluation-status"></p><div id="evaluation-content"></div></section><section id="history-learning"><h3>历史与学习</h3><div id="history-learning-content"></div></section>';
 $('detail').before(experimentDetails);
 const demoContext=document.querySelector('.demo-context') as HTMLElement;
 const demoBadge=document.querySelector('.demo-badge') as HTMLElement;
@@ -172,9 +173,11 @@ function hoverExperiment(t:number|undefined){
  $('hover').textContent=`${view.format(t,true)} · ${actual?'已核验实际收盘 '+actual.price.toFixed(2)+' · ':''}实验代表路径 ${f.scenarios.filter(s=>view!.paths.get(s.id)?.options().visible).map(s=>CATEGORY_LABELS[s.id]+' '+s.points[idx].price.toFixed(2)).join(' / ')}\n模型范围 ${stage.lower.toFixed(2)}–${stage.upper.toFixed(2)} · 未经校准`;
 }
 function renderExperimentEvidence(){
- const run=experiment!;const f=run.forecast;const target=$('experiment-summary');target.replaceChildren();
+ const run=experiment!;const f=run.forecast;const historical=$('history-learning-content');historical.replaceChildren();const addHistory=(text:string)=>{const p=document.createElement('p');p.textContent=text;historical.append(p);};const historySummary=experimentIndex?.summary;if(historySummary)addHistory(`历史 ${historySummary.total_runs} 期；已核验96节点成熟 ${historySummary.verified_mature_runs} 期；及时发布 ${historySummary.valid_runs} 期；迟到 ${historySummary.late_runs} 期；失败或无效 ${historySummary.failed_runs} 期。上述期数包含重叠窗口，不等于独立训练样本数。`);else addHistory('当前接口尚无完整历史学习汇总，仅展示已读取档案。');addHistory(`当前${selectionMode==='follow_latest'?'跟随最新':'固定回看'}；列表每页最多30期。索引最近校验 ${experimentIndex?.verified_at??experimentIndex?.checked_at??'未知'}。`);addHistory(`本次冻结基准样本 ${run.basis?.base_count??0} 个；反馈案例 ${run.basis?.case_ids.length??0} 个。案例使用当时实际可用证据；新结果不会改写历史输入。`);const target=$('experiment-summary');target.replaceChildren();
  const add=(text:string)=>{const p=document.createElement('p');p.textContent=text;target.append(p);};
  add(f.summary);
+ if(f.calibration){const c=f.calibration;evaluationTable(target,['24h 类别','原始概率','历史基准率','最终概率'],f.scenarios.map((scenario,i)=>[CATEGORY_LABELS[scenario.id],percentage(c.raw_probabilities[i]),percentage(c.base[i]),percentage(scenario.probability_24h)]),'本次概率依据');add(`固定混合系数 λ=${c.lambda}；原始主路径 ${CATEGORY_LABELS[c.raw_main as keyof typeof CATEGORY_LABELS]}，最终主路径 ${CATEGORY_LABELS[c.final_main as keyof typeof CATEGORY_LABELS]}。主路径按最大概率选择，同值按固定类别顺序。`);}
+ if(run.basis){const b=run.basis;add(`冻结反馈 ${b.feedback_mode}：${b.case_ids.length} 个案例；历史基准率 ${b.base_count} 个非重叠成熟样本，截止 ${b.base_cutoff??'未知'}。`);add(`衍生品数据已采集 ${b.derivatives_collected} 类，本次${b.derivatives_incorporated?'已纳入':'未纳入'}；官方日历已采集 ${b.calendar_collected} 项，纳入 ${b.calendar_included} 项。`);if(b.case_ids.length)add('本次引用案例：'+b.case_ids.join('、'));}else add('历史版本未记录反馈和补充输入信息；不补写为已学习。');
  add(`概率来源：官方 Codex 主观判断，未经校准；未来24h类别概率属于完整事件类别，不表示精准命中某条折线。6/12h仅裁切视窗；隐藏路径不修改概率。`);
  add(`事件覆盖：${f.event_risk_label} · ${f.event_mode}。${f.limitations.join('；')}`);
  const metadata=document.createElement('details');const summary=document.createElement('summary');summary.textContent='来源与预报版本';metadata.append(summary);
@@ -196,6 +199,8 @@ const reasonLabel:Record<string,string>={forecast_expired:'预报已过期',publ
 function indexOptions(index:DisplayIndex,chosen:string|undefined){
  select('run').replaceChildren();
  for(const r of index.runs){const o=document.createElement('option');o.value=r.run_id;o.textContent=`${r.published_at??r.created_at} · ${statusLabel[r.status]}${r.reason?' · '+reasonLabel[r.reason]:''} · ${r.run_id}`;select('run').append(o);}
+ if(chosen&&!index.runs.some(r=>r.run_id===chosen)&&experiment?.run_id===chosen){const option=document.createElement('option');option.value=chosen;option.textContent='固定回看 · '+chosen;select('run').append(option);}
+ $('history-more').hidden=index.next_cursor==null;
  if(chosen)select('run').value=chosen;select('run').disabled=!index.runs.length;
 }
 function experimentStatus(index:DisplayIndex,run:DisplayRun,statusOnly=false){
@@ -206,7 +211,7 @@ function experimentStatus(index:DisplayIndex,run:DisplayRun,statusOnly=false){
  $('run-status').textContent=`${state} · 首次发布 ${f.published_at}`;
  const warning=latest&&!['valid'].includes(latest.status)?`最近运行 ${latest.run_id}：${statusLabel[latest.status]}${latest.reason?' · '+reasonLabel[latest.reason]:''}。当前所示仍为 ${run.run_id} 的原始快照。`:'';
  if(statusOnly)return;
- const evaluation=run.evaluation.status==='available'?'已加载独立核对结果':run.evaluation.status==='failed'?(run.evaluation.reason==='evaluation_incomplete'?'核对尚未完成 / 无有效结果':'核对失败 / 无有效结果'):'尚未核对实际结果';
+ const evaluation=run.evaluation.status==='available'?'已加载独立核对结果':run.evaluation.status==='failed'?(run.evaluation.reason==='evaluation_unsupported'?'此评分版本当前无法重算':run.evaluation.reason==='evaluation_incomplete'?'核对尚未完成 / 无有效结果':'核对失败 / 无有效结果'):'尚未核对实际结果';
  showError(warning);$('load-status').textContent=`实验档案已校验 · ${state} · ${evaluation}`;
 }
 async function reloadExperiment(preferLatest=false){
@@ -216,12 +221,16 @@ async function reloadExperiment(preferLatest=false){
  try{
   const index=await loadDisplayIndex(controller.signal);
   const requested=preferLatest||activeMode!=='experiment'?undefined:select('run').value||undefined;
-  if(requested&&!index.runs.some(r=>r.run_id===requested))throw Error('所选历史预报已从索引缺失，未自动替换其他 run');
+  if(requested&&index.page_offset===undefined&&!index.runs.some(r=>r.run_id===requested))throw Error('所选历史预报已从索引缺失，未自动替换其他 run');
   const chosen=requested??index.latest_run_id??index.runs.find(r=>r.status==='valid'||r.status==='late')?.run_id;
-  if(!chosen){if(id!==request)return;view?.destroy();view=undefined;experiment=undefined;activeMode='experiment';experimentIndex=index;indexOptions(index,undefined);setModePresentation();$('legend').replaceChildren();$('experiment-summary').textContent='暂无已发布实验预报。';$('scenario-evidence').replaceChildren();$('evaluation-content').replaceChildren();$('evaluation-status').textContent='暂无可核对的已发布预测。';updateExperimentMeta();$('run-status').textContent=index.latest_attempt?`最近运行：${statusLabel[index.latest_attempt.status]} · ${index.latest_attempt.reason?reasonLabel[index.latest_attempt.reason]:'尚无有效发布'}`:'暂无实验预测';$('load-status').textContent='暂无实验预测 · 可切回固定 DEMO';showError('');select('window').disabled=true;return;}
+  if(!chosen){if(id!==request)return;view?.destroy();view=undefined;experiment=undefined;activeMode='experiment';experimentIndex=index;indexOptions(index,undefined);setModePresentation();$('legend').replaceChildren();$('experiment-summary').textContent='暂无已发布实验预报。';$('scenario-evidence').replaceChildren();$('evaluation-content').replaceChildren();$('evaluation-status').textContent='暂无可核对的已发布预测。';updateExperimentMeta();$('run-status').textContent=index.latest_attempt?`最近运行：${statusLabel[index.latest_attempt.status]} · ${index.latest_attempt.reason?reasonLabel[index.latest_attempt.reason]:'尚无有效发布'}`:'暂无实验预测';$('load-status').textContent='暂无实验预测 · 等待有效发布';showError('');select('window').disabled=true;return;}
   const run=await loadDisplayRun(chosen,controller.signal);if(id!==request)return;
   const indexed=index.runs.find(r=>r.run_id===chosen)!;
-  if(indexed.published_at!==run.forecast.published_at||indexed.status!==run.forecast.status)throw Error('索引与预报状态或首次发布时间不一致');
+  if(indexed&&(indexed.published_at!==run.forecast.published_at||indexed.status!==run.forecast.status))throw Error('索引与预报状态或首次发布时间不一致');
+  const sameRun=activeMode==='experiment'&&experiment?.run_id===run.run_id;
+  const preservedRange=sameRun?view?.chart.timeScale().getVisibleLogicalRange():null;
+  if(sameRun&&experiment?.hashes.forecast_sha256!==run.hashes.forecast_sha256)throw Error('已发布预报内容发生变化');
+  if(sameRun&&view){experiment=run;experimentIndex=index;experimentLoadFailed=false;view.setActual(run.evaluation.status==='available'?run.evaluation.result.actual_points:[]);if(preservedRange)view.chart.timeScale().setVisibleLogicalRange(preservedRange);indexOptions(index,run.run_id);renderExperimentEvidence();renderEvaluation();updateExperimentMeta();experimentStatus(index,run);return;}
   const projection=toExperimentChart(run);const visibility=activeMode==='experiment'&&experiment?.run_id===run.run_id?new Map([...view?.paths??[]].map(([key,s])=>[key,s.options().visible])):new Map<string,boolean>();
   view?.destroy();view=undefined;experimentLoadFailed=false;activeMode='experiment';experiment=run;experimentIndex=index;
   view=new WeatherChart($('chart'),projection.history,projection.forecast,hover);
@@ -234,8 +243,13 @@ async function reloadExperiment(preferLatest=false){
   select('window').disabled=false;select('timezone').disabled=false;($('reset')as HTMLButtonElement).disabled=false;
  }catch(error){if(id!==request)return;experimentLoadFailed=true;const message=error instanceof Error?error.message:String(error);showError(`实验档案加载失败：${message}。请恢复有效档案后重载；当前${experiment?'仍显示旧预报 '+experiment.run_id:'显示内容未切换'}，不是本次最新成功。`);$('load-status').textContent='加载失败 · 保留旧快照，未更新成功';$('run-status').textContent=experiment?'旧快照 · 本次更新失败':'实验模式加载失败';}
 }
+$('history-more').onclick=async()=>{const cursor=experimentIndex?.next_cursor;if(cursor==null)return;const id=++request;controller?.abort();controller=new AbortController();try{const page=await loadDisplayIndex(controller.signal,cursor);if(id!==request)return;experimentIndex=page;indexOptions(page,experiment?.run_id);selectionMode='history_pinned';}catch{if(id===request)showError('历史列表读取失败，当前预报保持不变');}};
 async function reload(){if(select('mode').value==='experiment')await reloadExperiment();else await reloadDemo();}
-$('mode').onchange=()=>void reload();$('run').onchange=()=>void reloadExperiment();$('latest').onclick=()=>void reloadExperiment(true);
-if(new URLSearchParams(location.search).has('test'))Object.assign(window,{chartTest:{snapshot:()=>({...view?.diagnostics()??{historyCount:0,pathCount:0,gridLineCount:0,activeCharts:0},mode:activeMode,runId:experiment?.run_id,forecastHash:experiment?.hashes.forecast_sha256,latestRunId:experimentIndex?.latest_run_id,evaluationStatus:experiment?.evaluation.status,evaluationRevision:experiment?.evaluation.status==='available'?experiment.evaluation.revision_id:undefined}),setRange:(from:number,to:number)=>view?.setRange(from,to),reload}});
-const statusTimer=window.setInterval(()=>{if(select('mode').value==='experiment')void reloadRuntime();if(activeMode==='experiment'&&experiment&&experimentIndex){updateExperimentMeta();if(!experimentLoadFailed)experimentStatus(experimentIndex,experiment,true);}},60000);
+$('mode').onchange=()=>{selectionMode='follow_latest';void reload();};$('run').onchange=()=>{selectionMode='history_pinned';void reloadExperiment();};$('latest').onclick=()=>{selectionMode='follow_latest';void reloadExperiment(true);};
+if(new URLSearchParams(location.search).has('test'))Object.assign(window,{chartTest:{snapshot:()=>({...view?.diagnostics()??{historyCount:0,pathCount:0,gridLineCount:0,activeCharts:0},mode:activeMode,selectionMode,runId:experiment?.run_id,forecastHash:experiment?.hashes.forecast_sha256,latestRunId:experimentIndex?.latest_run_id,evaluationStatus:experiment?.evaluation.status,evaluationRevision:experiment?.evaluation.status==='available'?experiment.evaluation.revision_id:undefined}),setRange:(from:number,to:number)=>view?.setRange(from,to),reload}});
+const refreshVisible=()=>{if(document.visibilityState==='visible'&&select('mode').value==='experiment')void reloadExperiment(selectionMode==='follow_latest');};
+window.addEventListener('online',refreshVisible);window.addEventListener('pageshow',refreshVisible);document.addEventListener('visibilitychange',refreshVisible);
+const statusTimer=window.setInterval(()=>{refreshVisible();if(activeMode==='experiment'&&experiment&&experimentIndex){updateExperimentMeta();if(!experimentLoadFailed)experimentStatus(experimentIndex,experiment,true);}},60000);
+const explicitDemo=new URLSearchParams(location.search).has('test')||new URLSearchParams(location.search).get('mode')==='demo';
+if(!explicitDemo){select('mode').querySelector('option[value=demo]')?.remove();select('mode').value='experiment';}
 void reload();window.addEventListener('pagehide',(event)=>{if(event.persisted)return;window.clearInterval(statusTimer);controller?.abort();runtimeController?.abort();view?.destroy();});

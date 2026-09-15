@@ -1,5 +1,6 @@
 import {readFile,writeFile,mkdir,rename,access} from 'node:fs/promises';
 import {dirname} from 'node:path';
+import{configuredRoots,dataReference}from'./m1-files.mjs';
 import {parseStrict,check,candleSchema,canonical,sha256} from '../src/contracts.ts';
 export async function readJson(path){return parseStrict(await readFile(path,'utf8'));}
 export async function writeJson(path,data){await mkdir(dirname(path),{recursive:true});const tmp=path+'.tmp';await writeFile(tmp,JSON.stringify(data,null,2)+'\n');await rename(tmp,path);}
@@ -12,7 +13,7 @@ export async function verifySource(h){
   const r=h.source.raw_responses[i];check(!paths.has(r.path),'原始响应path重复');paths.add(r.path);
   const requested=Date.parse(r.requested_at);check(requested>=previousTime&&requested<=Date.parse(h.downloaded_at),'来源请求时间顺序错误');previousTime=requested;
   check(!r.params.before,'不支持before历史分页');if(i===0)check(!r.params.after,'首页不能带游标');else check(r.params.after===String(previousOldest),'分页after不等于前页最早时间');
-  const bytes=await readFile(r.path);check(await sha256(bytes)===r.sha256,'原始响应hash不匹配');const body=parseStrict(bytes.toString('utf8'));check(body.code==='0'&&Array.isArray(body.data)&&body.data.length>0,'原始响应错误');
+  const bytes=await readFile(dataReference(r.path,configuredRoots().data_root));check(await sha256(bytes)===r.sha256,'原始响应hash不匹配');const body=parseStrict(bytes.toString('utf8'));check(body.code==='0'&&Array.isArray(body.data)&&body.data.length>0,'原始响应错误');
   const page=normalizeRows(body.data);if(i===0)check(page.end===h.end_time,'截止不是首页最新完整柱');
   const oldest=Math.min(...body.data.map(r=>Number(r[0])));check(i===0||oldest<previousOldest,'分页游标未递减');previousOldest=oldest;rows.push(...body.data);
  }
