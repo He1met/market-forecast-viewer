@@ -46,6 +46,7 @@
     "scripts/m1-outcome-store.mjs",
     "scripts/m1-package.mjs",
     "scripts/m1-public-data.mjs",
+    "scripts/m1-restore-replay.mjs",
     "scripts/m1-server.mjs",
     "scripts/m1-service.mjs",
     "scripts/m1-status.mjs",

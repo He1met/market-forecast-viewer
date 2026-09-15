@@ -39,3 +39,33 @@ const mutex=await businessMutex({dataRoot:data,port,releaseId:'SYNTHETIC_PROBE'}
 console.log(JSON.stringify({status:'passed',installed_failure_chains:true,publication_preserved:true,ops_partial_recovery:true,idle_mutex_released:true,model_calls:0,network_requests:0}));
 `],{cwd:target,encoding:'utf8',env:{...process.env,NODE_PATH:'',MFV_RUNTIME_HOME:e.evidence_root,MFV_DATA_ROOT:path.join(e.evidence_root,'synthetic-lifecycle')},timeout:30000});
 console.log(lifecycle.trim());
+
+// Full synthetic backup -> source destruction -> bounded replay in the sealed
+// package. No activation bypass and no market/model transport are used.
+const restoration=execFileSync(process.execPath,['--import','tsx','--input-type=module','-e',`
+import assert from 'node:assert/strict';import fs from 'node:fs/promises';import path from 'node:path';import net from 'node:net';
+import {backup,restore} from './scripts/m1-backup.mjs';import {replayRestored} from './scripts/m1-restore-replay.mjs';
+import {createDisplayReader} from './scripts/m1-display.mjs';import {createOutcomeStore} from './scripts/m1-outcome-store.mjs';import {caseStore} from './scripts/m1-cases.mjs';
+const root=process.env.SYNTHETIC_RESTORE_ROOT,data=path.join(root,'data'),target=path.join(root,'backup'),destination=path.join(root,'restored');
+await fs.mkdir(data,{recursive:true});await fs.mkdir(target);
+for(const name of ['forecast-runs','data-source','m1-outcomes'])await fs.cp(path.join(process.env.MFV_DATA_ROOT,name),path.join(data,name),{recursive:true});
+process.env.MFV_DATA_ROOT=data;
+const id='m1-20260912T183644170Z-00000000-0000-4000-8000-000000000011',reader=createDisplayReader({root:process.cwd(),dataRoot:data}),run=await reader.readRun(id),store=createOutcomeStore({root:process.cwd(),dataRoot:data});
+const capture=await store.capture(run,{transport:async({file})=>{await fs.writeFile(file,JSON.stringify({code:'0',msg:'SYNTHETIC',data:Array.from({length:96},(_,i)=>[String((run.forecast.anchor_time+i*900)*1000),...Array(4).fill(String(run.forecast.anchor_price)),'10','1','100','1']).reverse()}));return '200';}});
+assert.equal(capture.status,'ok');const revision=await store.evaluateCapture(run,capture.capture_id);assert.equal(revision.result.windows.h24.status,'mature');
+const originalCase=await caseStore({codeRoot:process.cwd(),dataRoot:data}).create(id,revision.revision_id);
+await fs.cp(path.join(data,'forecast-runs',id),path.join(data,'m1-candidates',id),{recursive:true});
+const socket=net.createServer();await new Promise(r=>socket.listen(0,'127.0.0.1',r));const port=socket.address().port;await new Promise(r=>socket.close(r));
+const saved=await backup({dataRoot:data,target,port,releaseId:'SYNTHETIC_INSTALLED_RESTORE',slotKey:'SYNTHETIC_WEEKLY'});assert.equal(saved.status,'completed');
+const again=await backup({dataRoot:data,target,port,releaseId:'SYNTHETIC_INSTALLED_RESTORE',slotKey:'SYNTHETIC_WEEKLY'});assert.equal(again.already_completed,true);assert.equal(again.manifest.id,saved.manifest.id);
+await fs.rm(path.join(data,'forecast-runs'),{recursive:true});await fs.writeFile(path.join(data,'m1-candidates',id,'manifest.json'),'SYNTHETIC_SOURCE_TAMPERED');
+const args={target,manifestFile:path.join(target,'manifests',saved.manifest.id+'.json'),destination,verify:async restored=>{process.env.MFV_DATA_ROOT=restored;return replayRestored({codeRoot:process.cwd(),dataRoot:restored,limit:1});}};
+const first=await restore({...args,maxFiles:1});assert.equal(first.status,'incomplete');assert.equal(await fs.stat(path.join(destination,'restore-receipt.json')).catch(()=>null),null);
+let result;for(let i=0;i<20;i++){result=await restore({...args,resume:true});if(result.schema==='MFV:RESTORE:v1')break;assert.equal(result.status,'incomplete');assert.equal(await fs.stat(path.join(destination,'restore-receipt.json')).catch(()=>null),null);}
+assert.equal(result.schema,'MFV:RESTORE:v1');assert.equal(result.activation_restored,false);assert.equal(result.replay.candidate_count,1);assert.equal(result.replay.case_count,1);assert.equal(result.replay.projections_complete,true);
+const restoredCase=await caseStore({codeRoot:process.cwd(),dataRoot:destination}).read(originalCase.id);assert.equal(restoredCase.brier,originalCase.brier);assert.equal(restoredCase.forecast_hash,originalCase.forecast_hash);
+const learning=JSON.parse(await fs.readFile(path.join(destination,'restore-derived/learning-summary.json')));assert.equal(learning.mean_brier,originalCase.brier);
+const receipt=await fs.readFile(path.join(destination,'restore-receipt.json'));assert.deepEqual(await restore({...args,resume:true}),JSON.parse(receipt));assert.deepEqual(await fs.readFile(path.join(destination,'restore-receipt.json')),receipt);
+console.log(JSON.stringify({status:'passed',installed_restore_chain:true,source_deleted_and_modified:true,mature_score_recomputed:true,candidate_replayed:true,learning_summary_rebuilt:true,bounded_resume:true,receipt_deduplicated:true,activation_restored:false,model_calls:0,network_requests:0}));
+`],{cwd:target,encoding:'utf8',env:{...process.env,NODE_PATH:'',MFV_RUNTIME_HOME:e.evidence_root,MFV_DATA_ROOT:dataRoot,SYNTHETIC_RESTORE_ROOT:path.join(e.evidence_root,'synthetic-restore')},timeout:60000});
+console.log(restoration.trim());
