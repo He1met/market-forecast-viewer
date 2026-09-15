@@ -51,6 +51,7 @@
     "scripts/m1-server.mjs",
     "scripts/m1-service.mjs",
     "scripts/m1-status.mjs",
+    "scripts/m1-publication-health.mjs",
     "scripts/m1-supplementary.mjs",
     "src/contracts.ts",
     "src/m1-contracts.ts",

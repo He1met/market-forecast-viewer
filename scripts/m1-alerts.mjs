@@ -12,12 +12,12 @@ export function alertStore(dataRoot){
   check(state.schema==='MFV:ALERT_STATE:v1'&&state.tasks&&state.observations&&Array.isArray(state.events),'ALERT_STATE_INVALID');return state;
  };
  const pending=async()=> (await load()).events.filter(x=>x.delivery.status==='pending');
- async function observe({task,observationId,at,condition=null,paused=false,guard}){
+ async function observe({task,observationId,at,condition=null,paused=false,confirmed=false,guard}){
   check(typeof guard==='function','ALERT_GUARD_REQUIRED');await guard();
   check(['forecast','ops','backup'].includes(task)&&typeof observationId==='string'&&observationId.length>0&&observationId.length<=128,'ALERT_OBSERVATION_INVALID');
   const time=Date.parse(at);check(Number.isFinite(time),'ALERT_TIME_INVALID');
   if(condition)check(/^[A-Z][A-Z0-9_]{0,79}$/.test(condition.code)&&typeof condition.object==='string'&&/^[a-zA-Z0-9:_-]{1,128}$/.test(condition.object)&&rank[condition.severity],'ALERT_CONDITION_INVALID');
-  const state=await load(),identity=task+':'+observationId,hash=digest(canonical({task,observationId,at,condition,paused}));
+  const state=await load(),identity=task+':'+observationId,hash=digest(canonical({task,observationId,at,condition,paused,...(confirmed?{confirmed:true}:{})}));
   if(state.observations[identity]){check(state.observations[identity]===hash,'ALERT_OBSERVATION_CHANGED');return{status:'duplicate',pending:state.events.filter(x=>x.delivery.status==='pending')};}
   const prior=state.tasks[task];check(!prior||time>=Date.parse(prior.checked_at),'ALERT_TIME_REVERSED');
   const active=prior?.active??{},key=condition?task+':'+condition.code+':'+condition.object:null;
@@ -30,7 +30,7 @@ export function alertStore(dataRoot){
     // A different error does not prove recovery of the previous one. Preserve
     // the transition in history, without emitting a false recovery notification.
     const previous=active[key],fault={key,...condition,count:prior?.last_key===key?(previous?.count??0)+1:1,first_seen_at:previous?.first_seen_at??at,notified_at:previous?.notified_at??null,notified_severity:previous?.notified_severity??null};
-    const due=condition.severity==='critical'||fault.count>=2;
+    const due=confirmed||condition.severity==='critical'||fault.count>=2;
     if(due&&(!fault.notified_at||time-Date.parse(fault.notified_at)>=reminderMs||rank[condition.severity]>rank[fault.notified_severity])){
      emit(fault.notified_at?'reminder':'fault',fault);fault.notified_at=at;fault.notified_severity=condition.severity;
     }

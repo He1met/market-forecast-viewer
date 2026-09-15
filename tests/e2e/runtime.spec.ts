@@ -89,3 +89,16 @@ test('installed runtime renders stale inspection and preserves publication succe
  const directory='artifacts/m14';await mkdir(directory,{recursive:true});
  await page.locator('#runtime-panel').screenshot({path:`${directory}/synthetic-installed-stale-${info.project.name}.png`});
 });
+
+
+test('SYNTHETIC安装版缺产出与实际调用状态分开显示',async({page},info)=>{
+ const value:RuntimeDisplay={...runtime(),source:'installed',configuration:null,release_integrity:'verified',paused:false,
+ inspection:{paused:false,freshness:'unknown',last_observed_at:null,result:'unknown'},
+ publication_health:{basis:'local_schedule',expected_since:at,checked_at:at,status:'stalled',slots:[{slot_id:'a'.repeat(64),anchor_time:Date.parse(at)/1000-1020,deadline_at:at,status:'missing',forecast_id:null}]}};
+ await page.route('**/api/m1/index',route=>route.fulfill({json:emptyIndex()}));
+ await page.route('**/api/m1/runtime',route=>route.fulfill({json:value}));
+ await openExperiment(page);await expect(page.locator('#runtime-details')).toContainText('更新停滞：到期时段缺少及时有效预报');
+ await expect(page.locator('#runtime-details')).toContainText('不代表官方任务实际触发或调用失败');
+ const directory='artifacts/m14';await mkdir(directory,{recursive:true});await page.locator('#runtime-panel').screenshot({path:`${directory}/synthetic-missing-output-${info.project.name}.png`});
+ value.paused=true;value.publication_health={...value.publication_health!,status:'paused',slots:[]};await refresh(page);await expect(page.locator('#runtime-details')).toContainText('暂停，不累计缺产出');
+});

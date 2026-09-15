@@ -143,6 +143,8 @@ const runtimeAttemptSchema = obj({
 export const runtimeDisplaySchema = obj({
   schema: z.literal('MFV:M1_RUNTIME_DISPLAY:v1'), checked_at: iso,
   source: z.literal('installed').optional(),
+  publication_health: obj({basis:z.literal('local_schedule'),expected_since:iso.nullable(),checked_at:iso,
+    status:z.enum(['paused','unknown','waiting','current','stalled']),slots:z.array(obj({slot_id:z.string().regex(/^[a-f0-9]{64}$/),anchor_time:z.number().int(),deadline_at:iso,status:z.enum(['present','missing','unknown']),forecast_id:runIdSchema.nullable()})).max(2)}).optional(),
   inspection: obj({ paused: z.boolean(), freshness: z.enum(['unknown', 'fresh', 'stale', 'clock_invalid']),
     last_observed_at: iso.nullable(), result: z.enum(['unknown', 'ok', 'failed']) }).optional(),
   release_integrity: z.enum(['verified', 'changed', 'unknown', 'unconfigured']),
@@ -167,6 +169,12 @@ export const runtimeDisplaySchema = obj({
     }
   } else {
     if (runtime.inspection || (runtime.configuration === null) !== (runtime.release_integrity === 'unconfigured')) fail();
+  }
+  const health=runtime.publication_health;
+  if(health){
+    if(runtime.source!=='installed'||health.checked_at!==runtime.checked_at||(health.status==='paused')!==runtime.paused)fail();
+    if(health.status==='current'&&health.slots[0]?.status!=='present'||health.status==='stalled'&&health.slots[0]?.status!=='missing')fail();
+    for(const slot of health.slots)if((slot.status==='present')!==(slot.forecast_id!==null)||Date.parse(slot.deadline_at)>Date.parse(health.checked_at)||Date.parse(slot.deadline_at)!==(slot.anchor_time+1020)*1000)fail();
   }
   if (runtime.configuration && Date.parse(runtime.configuration.read_back_at) > Date.parse(runtime.checked_at)) fail();
   if (runtime.last_success && Date.parse(runtime.last_success.completed_at) > Date.parse(runtime.checked_at)) fail();

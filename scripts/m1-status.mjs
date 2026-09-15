@@ -1,6 +1,7 @@
 import path from 'node:path';
+import {publicationHealth} from './m1-publication-health.mjs';
 import {readJson,exists,check} from './m1-files.mjs';
-export async function runtimeDisplay(dataRoot,{paused=true,opsPaused=true,now=Date.now()}={}){
+export async function runtimeDisplay(dataRoot,{paused=true,opsPaused=true,expectedSince=null,reader,now=Date.now()}={}){
  check(Number.isFinite(now),'STATUS_TIME_INVALID');
  const read=async name=>{const file=path.join(dataRoot,name);return await exists(file)?readJson(dataRoot,file):null;};
  const value=await read('m1-task-status/forecast.json'),success=await read('m1-task-status/last-forecast-success.json');
@@ -14,5 +15,5 @@ export async function runtimeDisplay(dataRoot,{paused=true,opsPaused=true,now=Da
  if(at!==null)check(Number.isFinite(time),'INSPECTION_TIME_INVALID');
  const freshness=at===null?'unknown':time>now?'clock_invalid':now-time>90*60000?'stale':'fresh';
  const inspection={paused:opsPaused,freshness,last_observed_at:at,result:!observed?'unknown':Object.keys(observed.active??{}).length?'failed':'ok'};
- return{schema:'MFV:M1_RUNTIME_DISPLAY:v1',source:'installed',checked_at:new Date(now).toISOString(),configuration:null,release_integrity:'verified',paused,inspection,latest_attempt:latest,last_success:success?{cycle_id:success.id,completed_at:success.completed_at,forecast_id:success.forecast_id}:null};
+ return{schema:'MFV:M1_RUNTIME_DISPLAY:v1',source:'installed',checked_at:new Date(now).toISOString(),configuration:null,release_integrity:'verified',paused,inspection,publication_health:await publicationHealth({reader,paused,expectedSince,now}),latest_attempt:latest,last_success:success?{cycle_id:success.id,completed_at:success.completed_at,forecast_id:success.forecast_id}:null};
 }

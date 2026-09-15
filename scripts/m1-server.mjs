@@ -11,7 +11,7 @@ export async function serve({codeRoot,dataRoot,port,paused=true,readStatusOption
   const url=new URL(req.url,origin);let body,type='application/json; charset=utf-8';
   if(url.pathname==='/api/m1/index')body=JSON.stringify(await views.page(Number(url.searchParams.get('cursor')??0)));
   else if(/^\/api\/m1\/runs\/m1-[\w-]+$/.test(url.pathname))body=JSON.stringify(await views.run(url.pathname.split('/').at(-1)));
-  else if(url.pathname==='/api/m1/runtime')body=JSON.stringify(await runtimeDisplay(dataRoot,await readStatusOptions()));
+  else if(url.pathname==='/api/m1/runtime')body=JSON.stringify(await runtimeDisplay(dataRoot,{...await readStatusOptions(),reader:createDisplayReader({root:codeRoot,dataRoot})}));
   else if(url.pathname==='/health')body=JSON.stringify({schema:'MFV:HEALTH:v1',release_id:manifest.release_id,build_sha:manifest.build_sha,ready:true,owner_token:process.env.MFV_SERVICE_TOKEN??null});
   else {const name=url.pathname==='/'?'dist/index.html':'dist'+url.pathname;check(manifest.files[name]&&mime[path.extname(name)]&&!name.startsWith('dist/data/'),'STATIC_FORBIDDEN');body=await readBytes(codeRoot,path.join(codeRoot,name));check(digest(body)===manifest.files[name].sha256,'STATIC_INTEGRITY_CHANGED');type=mime[path.extname(name)];}
   res.writeHead(200,{'Content-Type':type,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'"});res.end(body);

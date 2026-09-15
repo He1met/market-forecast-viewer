@@ -15,7 +15,7 @@ test('installed empty status satisfies page contract without claiming an officia
  const root=await fixture(t),value=parse(await runtimeDisplay(root,{now}));
  assert.equal(value.source,'installed');assert.equal(value.configuration,null);assert.equal(value.release_integrity,'verified');assert.equal(value.inspection.freshness,'unknown');
  assert.deepEqual(await fs.readdir(root),[]);
- const {source,inspection,...legacy}=value;assert.equal(runtimeDisplaySchema.safeParse(legacy).success,false);
+ const {source,inspection,publication_health,...legacy}=value;assert.equal(runtimeDisplaySchema.safeParse(legacy).success,false);
  assert.equal(runtimeDisplaySchema.safeParse({...legacy,release_integrity:'unconfigured'}).success,true);
 });
 test('installed publication time can precede cycle completion; later failure preserves publication',async t=>{

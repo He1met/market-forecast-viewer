@@ -103,3 +103,7 @@ C5历史实测：43项数据单元测试、28项浏览器检查；当前 #13 验
 [仓库](https://github.com/He1met/market-forecast-viewer) · [Chart MVP里程碑](https://github.com/He1met/market-forecast-viewer/milestone/1) · [Draft PR #7](https://github.com/He1met/market-forecast-viewer/pull/7)。Refs [#1](https://github.com/He1met/market-forecast-viewer/issues/1)、[#2](https://github.com/He1met/market-forecast-viewer/issues/2)、[#3](https://github.com/He1met/market-forecast-viewer/issues/3)、[#4](https://github.com/He1met/market-forecast-viewer/issues/4)、[#5](https://github.com/He1met/market-forecast-viewer/issues/5)、[#6](https://github.com/He1met/market-forecast-viewer/issues/6)。不自动合并或关闭需用户验收的Issues。
 
 第三方声明在 `public/licenses/`：lightweight-charts的Apache-2.0 LICENSE及v5.2.1 NOTICE、Zod与fancy-canvas的MIT许可证，页面保留TradingView署名和本地许可索引。没有为本项目另行授予开源许可证。
+
+### 安装版缺产出观察
+
+安装配置可显式提供 `forecast_expected_since`（UTC ISO 时间），表示当前连续启用段的本地预期起点。每次恢复业务时应设为本次启用时间；没有起点显示未知，暂停不累计历史漏报。此字段不证明官方任务已启用，实际调度仍须工具配置回读。状态 GET 只核验最近两个到期 slot 的生产原档；首未来节点加两分钟起判定，单窗口最多校验16份，超限或原档无法核验显示未知。ops 在持锁巡检中对连续两期缺产出生成 warning outbox，同一时段的重复小时观察不算两期；送达仍需官方通知收据。
