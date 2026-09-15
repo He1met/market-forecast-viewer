@@ -69,3 +69,24 @@ const receipt=await fs.readFile(path.join(destination,'restore-receipt.json'));a
 console.log(JSON.stringify({status:'passed',installed_restore_chain:true,source_deleted_and_modified:true,mature_score_recomputed:true,candidate_replayed:true,learning_summary_rebuilt:true,bounded_resume:true,receipt_deduplicated:true,activation_restored:false,model_calls:0,network_requests:0}));
 `],{cwd:target,encoding:'utf8',env:{...process.env,NODE_PATH:'',MFV_RUNTIME_HOME:e.evidence_root,MFV_DATA_ROOT:dataRoot,SYNTHETIC_RESTORE_ROOT:path.join(e.evidence_root,'synthetic-restore')},timeout:60000});
 console.log(restoration.trim());
+
+// Sealed-package outbox/ops chain: unavailable delivery stays pending, including
+// recovery; a failed outbox write cannot certify an hourly slot as completed.
+const alertChain=execFileSync(process.execPath,['--import','tsx','--input-type=module','-e',`
+import assert from 'node:assert/strict';import fs from 'node:fs/promises';import path from 'node:path';import net from 'node:net';
+import {ops} from './scripts/m1-ops.mjs';import {alertStore} from './scripts/m1-alerts.mjs';
+const root=process.env.SYNTHETIC_ALERT_ROOT;await fs.mkdir(root,{recursive:true});
+const server=net.createServer();await new Promise(r=>server.listen(0,'127.0.0.1',r));const port=server.address().port;await new Promise(r=>server.close(r));
+let failed=true;const options={codeRoot:process.cwd(),dataRoot:root,port,releaseId:'SYNTHETIC',refreshInputs:async()=>{if(failed)throw Error('SYNTHETIC_NETWORK');}};
+assert.equal((await ops(options)).alerts.event_ids.length,0);
+assert.equal((await ops(options)).alerts.event_ids.length,1);
+assert.equal((await ops(options)).alerts.event_ids.length,1);
+failed=false;assert.equal((await ops(options)).status,'completed');
+const store=alertStore(root),pending=await store.pending();assert.deepEqual(pending.map(x=>x.kind),['fault','recovery']);assert.ok(pending.every(x=>x.delivery.status==='pending'));
+assert.equal((await ops(options)).reason,'slot_completed');
+const broken=path.join(root,'broken');await fs.mkdir(path.join(broken,'m1-control/alerts.json'),{recursive:true});
+const partial=await ops({...options,dataRoot:broken});assert.equal(partial.status,'partial');assert.equal(partial.primary_status,'completed');assert.ok(partial.alert_error);
+await fs.rmdir(path.join(broken,'m1-control/alerts.json'));assert.equal((await ops({...options,dataRoot:broken})).status,'completed');
+console.log(JSON.stringify({status:'passed',installed_alert_outbox:true,two_failures:true,deduplicated:true,recovery_pending:true,outbox_failure_blocks_completion:true,network_requests:0,model_calls:0}));
+`],{cwd:target,encoding:'utf8',env:{...process.env,NODE_PATH:'',SYNTHETIC_ALERT_ROOT:path.join(e.evidence_root,'synthetic-alerts')},timeout:60000});
+console.log(alertChain.trim());

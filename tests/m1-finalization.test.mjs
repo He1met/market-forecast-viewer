@@ -7,6 +7,7 @@ import net from 'node:net';
 import { cycle } from '../scripts/m1-cycle.mjs';
 import { ops, scanOpsBatch } from '../scripts/m1-ops.mjs';
 import { businessMutex } from '../scripts/m1-mutex.mjs';
+import { alertStore } from '../scripts/m1-alerts.mjs';
 
 async function fixture(t) {
  const root=await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()),'mfv-finalization-'));
@@ -23,6 +24,24 @@ async function sabotageResult(root) {
  const ids=await fs.readdir(path.join(root,'m1-observations'));
  await fs.mkdir(path.join(root,'m1-observations',ids.at(-1),'result.json'));
 }
+test('ops outbox persists two failures, one recovery and no false delivered state',async t=>{
+ const {root,port}=await fixture(t);let fail=true;
+ const options={codeRoot:process.cwd(),dataRoot:root,port,releaseId:'SYNTHETIC',refreshInputs:async()=>{if(fail)throw Error('SYNTHETIC_NETWORK');}};
+ assert.equal((await ops(options)).alerts.event_ids.length,0);
+ const second=await ops(options);assert.equal(second.status,'failed');assert.equal(second.alerts.delivery,'pending');assert.equal(second.alerts.event_ids.length,1);
+ assert.equal((await ops(options)).alerts.event_ids.length,1);
+ fail=false;const repaired=await ops(options);assert.equal(repaired.status,'completed');assert.equal(repaired.alerts.event_ids.length,2);
+ assert.deepEqual((await alertStore(root).pending()).map(x=>x.kind),['fault','recovery']);
+ assert.equal((await ops(options)).reason,'slot_completed');await free(root,port);
+});
+test('outbox storage failure retains original result and cannot complete the ops slot',async t=>{
+ const {root,port}=await fixture(t),file=path.join(root,'m1-control/alerts.json');
+ await fs.mkdir(file,{recursive:true});
+ const options={codeRoot:process.cwd(),dataRoot:root,port,releaseId:'SYNTHETIC'};
+ const first=await ops(options);assert.equal(first.status,'partial');assert.equal(first.primary_status,'completed');assert.ok(first.alert_error);
+ await free(root,port);await fs.rmdir(file);
+ assert.equal((await ops(options)).status,'completed');await free(root,port);
+});
 const forecastOptions=(root,port)=>({dataRoot:root,mutexPort:port,releaseId:'SYNTHETIC',
  clock:()=>Date.parse('2026-09-15T01:47:00Z'),freeze:async()=>({}),
  generate:async()=>({forecast:{run_id:'SYNTHETIC_PUBLISHED',published_at:'2026-09-15T01:48:00Z'}}),publishIndex:async()=>{}});

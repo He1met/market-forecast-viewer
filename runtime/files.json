@@ -26,6 +26,7 @@
     "runtime/package.json",
     "scripts/data-utils.mjs",
     "scripts/m1-admin.mjs",
+    "scripts/m1-alerts.mjs",
     "scripts/m1-archive.mjs",
     "scripts/m1-backup.mjs",
     "scripts/m1-cases.mjs",

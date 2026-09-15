@@ -1,3 +1,4 @@
+import {alertStore,opsAlertCondition} from './m1-alerts.mjs';
 import path from'node:path';import{randomUUID}from'node:crypto';import{writeOnce,atomic,readJson,exists,check}from'./m1-files.mjs';import{businessMutex}from'./m1-mutex.mjs';import{createDisplayReader}from'./m1-display.mjs';import{createOutcomeStore}from'./m1-outcome-store.mjs';import{projectionStore}from'./m1-index.mjs';import{caseStore}from'./m1-cases.mjs';import{experimentStore,effectivePolicy}from'./m1-experiments.mjs';import{mainScenario,fitLambda}from'./m1-learning.mjs';import fs from'node:fs/promises';
 // Persist unresolved objects independently of the rotating scan position. A crash
 // after selecting an object cannot make its failure disappear on the next batch.
@@ -62,6 +63,17 @@ export async function ops({codeRoot,dataRoot,port,releaseId,policy,paused=false,
    }
   }
   if(performance.now()-start<95000)await refreshInputs({signal:AbortSignal.timeout(Math.max(1,Math.floor(115000-(performance.now()-start))))});
-  const projection=await projectionStore(dataRoot).update(readers.production,{limit:16,guard,deadline:start+120000});const incomplete=unresolved.length>0;result={status:incomplete?'partial':'completed',...(incomplete?{reason:'outcome_incomplete'}:{}),outcomes,unresolved,projection,decision};await guard();await atomic(dataRoot,slotFile,{schema:'MFV:OPS_SLOT:v1',slot_hour:slotHour,status:result.status,observation_id:id,completed_at:new Date().toISOString()});return result;
- }catch(e){result={status:'failed',reason:e.message};return result;}finally{try{const final={...observation,...result,completed_at:new Date().toISOString(),elapsed_ms:performance.now()-start};await writeOnce(dataRoot,path.join(folder,'result.json'),final);if(mutex?.status==='ACQUIRED'){await mutex.guard();await atomic(dataRoot,path.join(dataRoot,'m1-task-status/ops.json'),final);}}finally{if(mutex?.status==='ACQUIRED')await mutex.close();}}
+  const projection=await projectionStore(dataRoot).update(readers.production,{limit:16,guard,deadline:start+120000});const incomplete=unresolved.length>0;result={status:incomplete?'partial':'completed',...(incomplete?{reason:'outcome_incomplete'}:{}),outcomes,unresolved,projection,decision};return result;
+ }catch(e){result={status:'failed',reason:e.message};return result;}finally{
+  try{
+   if(mutex?.status==='ACQUIRED'&&result.status!=='skipped'){
+    try{const alerts=await alertStore(dataRoot).observe({task:'ops',observationId:id,at:new Date().toISOString(),condition:opsAlertCondition(result),guard:mutex.guard});result.alerts={delivery:alerts.pending.length?'pending':'none',event_ids:alerts.pending.map(x=>x.id)};}
+    catch(e){Object.assign(result,{primary_status:result.status,status:'partial',alert_error:e.message,reason:result.reason??'alert_record_failed'});}
+    await mutex.guard();await atomic(dataRoot,slotFile,{schema:'MFV:OPS_SLOT:v1',slot_hour:slotHour,status:result.status,observation_id:id,completed_at:new Date().toISOString()});
+   }
+   const final={...observation,...result,completed_at:new Date().toISOString(),elapsed_ms:performance.now()-start};
+   await writeOnce(dataRoot,path.join(folder,'result.json'),final);
+   if(mutex?.status==='ACQUIRED'){await mutex.guard();await atomic(dataRoot,path.join(dataRoot,'m1-task-status/ops.json'),final);}
+  }finally{if(mutex?.status==='ACQUIRED')await mutex.close();}
+ }
 }
