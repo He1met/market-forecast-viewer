@@ -1,3 +1,4 @@
+import {capacitySnapshot,requireCapacity} from './m1-capacity.mjs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -33,6 +34,7 @@ const skipped=new Set(['artifacts','node_modules','.git','dist','.local','covera
 async function copy(from,to){await fs.mkdir(to,{recursive:true});for(const ent of await fs.readdir(from,{withFileTypes:true})){if(skipped.has(ent.name)||ent.name==='.DS_Store'||ent.name.startsWith('.env'))continue;const src=path.join(from,ent.name),dst=path.join(to,ent.name);if(ent.isSymbolicLink())throw Error('SOURCE_SYMLINK_FORBIDDEN');if(ent.isDirectory()){if(src===path.join(root,'public/data'))continue;await copy(src,dst);}else await fs.copyFile(src,dst);}}
 let result={status:'failed',steps:[]};
 try {
+ requireCapacity(await capacitySnapshot(root));
  await copy(root,work);
  await fs.cp(path.join(root,'node_modules'),path.join(work,'node_modules'),{recursive:true,force:false,errorOnExist:true});
  for(const args of [['init','-b','feat/chart-mvp'],['add','.'],['-c','user.name=MFV Synthetic CI','-c','user.email=synthetic@example.invalid','commit','-m','SYNTHETIC verification checkout']])execFileSync('git',args,{cwd:work,stdio:'pipe'});

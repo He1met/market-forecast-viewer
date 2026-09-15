@@ -6,8 +6,8 @@ const rank={warning:1,critical:2};
 // The caller owns the business mutex. State, deduplication and pending events
 // commit together: retrying an uncertain write cannot manufacture another alert.
 export function alertStore(dataRoot,{stream='default'}={}){
- check(['default','execution'].includes(stream),'ALERT_STREAM_INVALID');
- const file=path.join(dataRoot,stream==='default'?'m1-control/alerts.json':'m1-control/execution-alerts.json');
+ check(['default','execution','capacity'].includes(stream),'ALERT_STREAM_INVALID');
+ const file=path.join(dataRoot,stream==='default'?'m1-control/alerts.json':'m1-control/'+stream+'-alerts.json');
  const load=async()=>{
   const state=await exists(file)?await readJson(dataRoot,file):{schema:'MFV:ALERT_STATE:v1',tasks:{},observations:{},events:[]};
   check(state.schema==='MFV:ALERT_STATE:v1'&&state.tasks&&state.observations&&Array.isArray(state.events),'ALERT_STATE_INVALID');return state;

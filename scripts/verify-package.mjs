@@ -208,3 +208,15 @@ for(const [index,mode] of ['published','budget_skipped','failed'].entries()){
 console.log(JSON.stringify({status:'passed',installed_real_cycle_orchestration:true,candidate_outcomes:['published','budget_skipped','failed'],official_publication_preserved:true,duplicate_slot_no_callbacks:true,mutex_released:true,model_calls:0,market_requests:0,entry_wiring_verified:false,real_timeliness_verified:false}));
 `],{cwd:target,encoding:'utf8',env:{...process.env,NODE_PATH:'',MFV_RUNTIME_HOME:e.evidence_root,MFV_DATA_ROOT:path.join(e.evidence_root,'synthetic-candidate-chain'),MFV_FIXTURE_ROOT:dataRoot},timeout:30000});
 console.log(candidateChain.trim());
+
+console.log(execFileSync(process.execPath,['--import','tsx','--input-type=module','-e',`
+import assert from 'node:assert/strict';import fs from 'node:fs/promises';import path from 'node:path';import net from 'node:net';
+import {ops} from './scripts/m1-ops.mjs';import {alertStore} from './scripts/m1-alerts.mjs';import {capacitySnapshot,requireCapacity} from './scripts/m1-capacity.mjs';
+const root=process.env.SYNTHETIC_CAPACITY_ROOT;await fs.mkdir(root,{recursive:true});const s=net.createServer();await new Promise(r=>s.listen(0,'127.0.0.1',r));const port=s.address().port;await new Promise(r=>s.close(r));
+let free=100n,refresh=0;const policy={reserve_bytes:200,production_floor_bytes:50},statfs=async()=>({bsize:1n,blocks:1000n,bfree:free,bavail:free}),options={codeRoot:process.cwd(),dataRoot:root,port,releaseId:'SYNTHETIC',capacityPolicy:policy,capacityStatfs:statfs,refreshInputs:async()=>{refresh++;}};
+const low=await ops(options);assert.equal(low.status,'completed');assert.equal(low.capacity.current.status,'low');assert.equal(refresh,0);assert.equal((await alertStore(root,{stream:'capacity'}).pending()).length,1);assert.throws(()=>requireCapacity(low.capacity.current),/CAPACITY_RESERVE_LOW/);requireCapacity(low.capacity.current,'production');
+// Clear only this synthetic slot to exercise another invocation in the same test.
+await fs.rm(path.join(root,'m1-control/ops-slots'),{recursive:true});free=300n;const recovered=await ops(options);assert.equal(recovered.capacity.current.status,'ok');assert.equal(refresh,1);assert.deepEqual((await alertStore(root,{stream:'capacity'}).pending()).map(x=>x.kind),['fault','recovery']);
+free=49n;const critical=await capacitySnapshot(root,{policy,statfs});assert.throws(()=>requireCapacity(critical,'production'),/CAPACITY_PRODUCTION_LOW/);
+console.log(JSON.stringify({status:'passed',installed_capacity:true,optional_suppression:true,production_floor:true,pending_recovery:true,network_requests:0,model_calls:0}));
+`],{cwd:target,encoding:'utf8',env:{...process.env,NODE_PATH:'',SYNTHETIC_CAPACITY_ROOT:path.join(e.evidence_root,'synthetic-capacity')},timeout:60000}).trim());

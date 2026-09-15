@@ -1,3 +1,4 @@
+import {observeCapacity} from './m1-capacity.mjs';
 import {collectExecutionObservations} from './m1-observation-alerts.mjs';
 import {publicationHealth,observePublicationHealth} from './m1-publication-health.mjs';
 import {alertStore,opsAlertCondition} from './m1-alerts.mjs';
@@ -27,18 +28,25 @@ export async function scanOpsBatch({dataRoot,role,ids,visit,guard,limit=8,should
  }
  return{visited,outcomes,unresolved:[...unresolved.values()].map(x=>({role,...x}))};
 }
-export async function ops({codeRoot,dataRoot,port,releaseId,policy,paused=false,forecastPaused=true,expectedSince=null,readForecastControl=async()=>({paused:forecastPaused,expectedSince}),outcomeTransport,refreshInputs=async()=>{}}){
+export async function ops({codeRoot,dataRoot,port,releaseId,policy,paused=false,forecastPaused=true,expectedSince=null,readForecastControl=async()=>({paused:forecastPaused,expectedSince}),capacityPolicy,capacityStatfs,outcomeTransport,refreshInputs=async()=>{}}){
  const slotHour=new Date().toISOString().slice(0,13),slotFile=path.join(dataRoot,'m1-control/ops-slots',slotHour.replace(/[^0-9]/g,'')+'.json');
  const start=performance.now(),id=randomUUID(),folder=path.join(dataRoot,'m1-observations',id),observation={schema:'MFV:OBSERVATION:v1',id,task:'ops',release_id:releaseId,started_at:new Date().toISOString()};await writeOnce(dataRoot,path.join(folder,'started.json'),observation);let mutex,result={status:'failed',reason:'incomplete'};
  try{if(paused){result={status:'skipped',reason:'paused'};return result;}mutex=await businessMutex({dataRoot,port,releaseId,task:'ops'});if(mutex.status!=='ACQUIRED'){result={status:'skipped',reason:mutex.status};return result;}
   if(await exists(slotFile)&&(await readJson(dataRoot,slotFile)).status==='completed'){result={status:'skipped',reason:'slot_completed'};return result;}
   await atomic(dataRoot,slotFile,{schema:'MFV:OPS_SLOT:v1',slot_hour:slotHour,status:'running',observation_id:id,started_at:observation.started_at});
   const guard=async()=>{await mutex.guard();check(performance.now()-start<120000,'OPS_WRITE_DEADLINE');};
+  const capacity=await observeCapacity({dataRoot,guard,policy:capacityPolicy,statfs:capacityStatfs});
+  await alertStore(dataRoot,{stream:'capacity'}).observe({task:'ops',observationId:id,at:capacity.current.observed_at,confirmed:true,condition:capacity.current.status==='ok'?null:{code:capacity.current.status==='unknown'?'CAPACITY_UNKNOWN':capacity.current.status==='critical'?'CAPACITY_PRODUCTION_LOW':'CAPACITY_RESERVE_LOW',object:'data_filesystem',severity:capacity.current.status==='critical'?'critical':'warning'},guard});
   const executionObservations=await collectExecutionObservations({dataRoot,guard});
   const experiment=experimentStore(dataRoot);const recoveredDecision=await experiment.recoverTransition({guard});
   const readers={production:createDisplayReader({root:codeRoot,dataRoot}),candidate:createDisplayReader({root:codeRoot,dataRoot,runsRoot:path.join(dataRoot,'m1-candidates')})};
   const outcomes=[],unresolved=[];let processed=0;
   for(const role of ['production','candidate']){
+   if(role==='candidate'&&capacity.current.optional_work!=='allowed'){
+    const cursorFile=path.join(dataRoot,'m1-control/ops-candidate-cursor.json');
+    if(await exists(cursorFile)){const prior=await readJson(dataRoot,cursorFile);check(Number.isSafeInteger(prior.offset)&&prior.offset>=0&&Array.isArray(prior.unresolved??[]),'OPS_CURSOR_INVALID');unresolved.push(...(prior.unresolved??[]).map(x=>({role,...x,deferred:'capacity'})));}
+    continue;
+   }
    const reader=readers[role],runsRoot=path.join(dataRoot,role==='production'?'forecast-runs':'m1-candidates'),store=createOutcomeStore({root:codeRoot,dataRoot,runsRoot});
    const batch=await scanOpsBatch({dataRoot,role,ids:await reader.listRunIds(),guard,limit:Math.min(8,16-processed),shouldStop:()=>performance.now()-start>85000,visit:async runId=>{
     const run=await reader.readRun(runId);
@@ -56,7 +64,7 @@ export async function ops({codeRoot,dataRoot,port,releaseId,policy,paused=false,
   let decision=recoveredDecision;
   if(performance.now()-start<100000){await guard();decision=recoveredDecision??((await caseStore({codeRoot,dataRoot}).controls()).learning_disabled?{decision:'paused_learning_disabled'}:await experiment.review({guard,readMetrics:async(id,role)=>{try{const run=await readers[role].readRun(id),f=run.forecast,e=run.evaluation.status==='available'?run.evaluation.result.windows.h24:null,main=mainScenario(f.scenarios.map(x=>x.probability_24h));return{valid:f.status==='valid',timely:Date.parse(f.published_at)<(f.anchor_time+900)*1000,started_at:f.generation_started_at,complete:e?.status==='mature',brier:e?.brier_score??null,path_loss:e?.scenario_errors.find(x=>x.id===main).mae_return_pct??null};}catch{return null;}}}));
    if(policy)policy=await effectivePolicy(dataRoot,policy);
-   if(policy&&!await experiment.active()){
+   if(capacity.current.optional_work==='allowed'&&policy&&!await experiment.active()){
     const control=await caseStore({codeRoot,dataRoot}).controls();
     if(!control.learning_disabled){const cutoff=new Date().toISOString(),cases=await caseStore({codeRoot,dataRoot}).available(cutoff),used=new Set();
      for(const id of await fs.readdir(path.join(dataRoot,'m1-experiments')).catch(e=>{if(e.code==='ENOENT')return[];throw e;})){if(!/^[a-f0-9-]{36}$/.test(id))continue;const file=path.join(dataRoot,'m1-experiments',id,'plan.json');if(await exists(file))used.add((await readJson(dataRoot,file)).factor);}
@@ -65,12 +73,12 @@ export async function ops({codeRoot,dataRoot,port,releaseId,policy,paused=false,
     }
    }
   }
-  if(performance.now()-start<95000)await refreshInputs({signal:AbortSignal.timeout(Math.max(1,Math.floor(115000-(performance.now()-start))))});
-  const projection=await projectionStore(dataRoot).update(readers.production,{limit:16,guard,deadline:start+120000});const incomplete=unresolved.length>0||executionObservations.status!=='completed';result={status:incomplete?'partial':'completed',...(incomplete?{reason:unresolved.length?'outcome_incomplete':'observation_collection_incomplete'}:{}),outcomes,unresolved,projection,decision,execution_observations:executionObservations};return result;
+  if(capacity.current.optional_work==='allowed'&&performance.now()-start<95000)await refreshInputs({signal:AbortSignal.timeout(Math.max(1,Math.floor(115000-(performance.now()-start))))});
+  const projection=await projectionStore(dataRoot).update(readers.production,{limit:16,guard,deadline:start+120000});const incomplete=unresolved.length>0||executionObservations.status!=='completed';result={status:incomplete?'partial':'completed',...(incomplete?{reason:unresolved.length?'outcome_incomplete':'observation_collection_incomplete'}:{}),outcomes,unresolved,projection,decision,execution_observations:executionObservations,capacity};return result;
  }catch(e){result={status:'failed',reason:e.message};return result;}finally{
   try{
    if(mutex?.status==='ACQUIRED'&&result.status!=='skipped'){
-    try{result.publication_health=await publicationHealth({reader:createDisplayReader({root:codeRoot,dataRoot}),...await readForecastControl()});await observePublicationHealth(alertStore(dataRoot),result.publication_health,{observationId:id,guard:mutex.guard});const alerts=await alertStore(dataRoot).observe({task:'ops',observationId:id,at:new Date().toISOString(),condition:opsAlertCondition(result),guard:mutex.guard});const pending=[...alerts.pending,...await alertStore(dataRoot,{stream:'execution'}).pending()];result.alerts={delivery:pending.length?'pending':'none',event_ids:pending.map(x=>x.id)};}
+    try{result.publication_health=await publicationHealth({reader:createDisplayReader({root:codeRoot,dataRoot}),...await readForecastControl()});await observePublicationHealth(alertStore(dataRoot),result.publication_health,{observationId:id,guard:mutex.guard});const alerts=await alertStore(dataRoot).observe({task:'ops',observationId:id,at:new Date().toISOString(),condition:opsAlertCondition(result),guard:mutex.guard});const pending=[...alerts.pending,...await alertStore(dataRoot,{stream:'execution'}).pending(),...await alertStore(dataRoot,{stream:'capacity'}).pending()];result.alerts={delivery:pending.length?'pending':'none',event_ids:pending.map(x=>x.id)};}
     catch(e){Object.assign(result,{primary_status:result.status,status:'partial',alert_error:e.message,reason:result.reason??'alert_record_failed'});}
     await mutex.guard();await atomic(dataRoot,slotFile,{schema:'MFV:OPS_SLOT:v1',slot_hour:slotHour,status:result.status,observation_id:id,completed_at:new Date().toISOString()});
    }
