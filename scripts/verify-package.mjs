@@ -162,5 +162,36 @@ try{
  assert.equal((await readPublished(candidate.runDir)).forecast.run_id,candidate.run_id);
  console.log(JSON.stringify({status:'passed',installed_candidate_chain:true,common_market_hash_verified:true,frozen_binding_verified:true,unpublished_source_rejected:true,paths_unchanged:true,probability_transform_verified:true,actual_start_recorded:true,opportunity_deduplicated:true,model_calls:0,market_requests:0,real_timeliness_verified:false}));
 }finally{await mutex.close();}
+// Exercise the actual cycle callbacks with real archive/experiment/model modules.
+// The clock and official output are synthetic: this checks orchestration only.
+const {cycle}=await import('./scripts/m1-cycle.mjs');
+const baseline={predictor_version:'SYNTHETIC',model:'SYNTHETIC',reasoning_effort:'medium',additional_inputs:'none',feedback:'F0',lambda:0};
+for(const [index,mode] of ['published','budget_skipped','failed'].entries()){
+ const store=experimentStore(data),order=[];let registration,official,candidate,elapsed=0,officialCalls=0,candidateCalls=0,finalizations=0;
+ const now=Date.parse('2026-09-16T17:47:00Z')+index*86400000;
+ const options={dataRoot:data,releaseId:'SYNTHETIC_CYCLE',mutexPort:port,trigger:'manual',clock:()=>now,monotonic:()=>elapsed,
+  resolvePolicy:async({mutex})=>{await mutex.guard();order.push('policy');return baseline;},
+  registerOpportunity:async(slot,{guard,policy})=>{order.push('register');registration=await store.register(slot,policy,{guard});assert.ok(registration);return registration;},
+  freeze:async()=>{order.push('freeze');official=await newRun(path.join(data,'forecast-runs'));await freezeInput(official.runDir,input,'SYNTHETIC cycle snapshot',schema,provenance);return official;},
+  prepareCandidate:async(r,frozen,{guard})=>{order.push('candidate_freeze');candidate=await store.freezeCandidate(r,frozen,{guard,learningBuilder:async(features,cutoff,policy)=>{const original=await readFrozen(frozen.runDir);assert.equal(cutoff,original.manifest.information_frozen_at);return{...input.model_context.learning,lambda:policy.lambda};}});return candidate;},
+  generate:async(frozen,{beforePublish})=>{order.push('official_publish');officialCalls++;const attempt=await prepareAttempt(frozen.runDir);await fs.writeFile(attempt.rawFile,raw);await completeAttempt(frozen.runDir,attempt.attempt_id,{exit_code:0,model_config:{synthetic:true}});await beforePublish();return publishRun(frozen.runDir,attempt.rawFile,{attempt_id:attempt.attempt_id});},
+  publishIndex:async({published})=>{order.push('index');assert.equal(published.forecast.run_id,official.run_id);if(mode==='budget_skipped')elapsed=520000;},
+  runCandidate:async(frozen,context)=>{order.push('candidate_run');candidateCalls++;assert.equal((await readPublished(official.runDir)).forecast.run_id,official.run_id);if(mode==='failed')throw Error('SYNTHETIC_CANDIDATE_FAILURE');return generateCandidate(frozen,context);},
+  finishOpportunity:async(r,result)=>{order.push('finish');finalizations++;await store.finish(r,result);}
+ };
+ const result=await cycle(options);assert.equal(result.status,'completed');assert.equal(result.forecast_id,official.run_id);
+ const finish=JSON.parse(await fs.readFile(path.join(registration.dir,'generation.json')));
+ assert.equal(finish.candidate_status,mode);assert.equal(finish.candidate_invoked,mode!=='budget_skipped');assert.equal(finish.official_run_id,official.run_id);assert.equal(finish.candidate_run_id,candidate.run_id);
+ assert.deepEqual(order,['policy','register','freeze','candidate_freeze','official_publish','index',...(mode==='budget_skipped'?[]:['candidate_run']),'finish']);
+ assert.equal(officialCalls,1);assert.equal(candidateCalls,mode==='budget_skipped'?0:1);assert.equal(finalizations,1);
+ if(mode==='published'){
+  const a=await readPublished(official.runDir),b=await readPublished(candidate.runDir);assert.deepEqual(a.forecast.scenarios.map(x=>x.prices),b.forecast.scenarios.map(x=>x.prices));assert.equal(a.receipt.raw_output_sha256,b.receipt.raw_output_sha256);
+  for(let i=0;i<6;i++)assert.ok(Math.abs(b.forecast.scenarios[i].probability_24h-(a.forecast.scenarios[i].probability_24h*.5+1/12))<1e-12);
+ }else await assert.rejects(()=>fs.stat(path.join(candidate.runDir,'attempt-001')),/ENOENT/);
+ const bytes=await fs.readFile(path.join(registration.dir,'generation.json'));order.length=0;
+ assert.equal((await cycle(options)).reason,'duplicate_slot');assert.equal(officialCalls,1);assert.equal(candidateCalls,mode==='budget_skipped'?0:1);assert.equal(finalizations,1);assert.deepEqual(await fs.readFile(path.join(registration.dir,'generation.json')),bytes);
+ const released=await businessMutex({dataRoot:data,port,releaseId:'SYNTHETIC_RELEASE_CHECK'});assert.equal(released.status,'ACQUIRED');await released.close();
+}
+console.log(JSON.stringify({status:'passed',installed_real_cycle_orchestration:true,candidate_outcomes:['published','budget_skipped','failed'],official_publication_preserved:true,duplicate_slot_no_callbacks:true,mutex_released:true,model_calls:0,market_requests:0,entry_wiring_verified:false,real_timeliness_verified:false}));
 `],{cwd:target,encoding:'utf8',env:{...process.env,NODE_PATH:'',MFV_RUNTIME_HOME:e.evidence_root,MFV_DATA_ROOT:path.join(e.evidence_root,'synthetic-candidate-chain'),MFV_FIXTURE_ROOT:dataRoot},timeout:30000});
 console.log(candidateChain.trim());
