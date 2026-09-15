@@ -220,3 +220,16 @@ await fs.rm(path.join(root,'m1-control/ops-slots'),{recursive:true});free=300n;c
 free=49n;const critical=await capacitySnapshot(root,{policy,statfs});assert.throws(()=>requireCapacity(critical,'production'),/CAPACITY_PRODUCTION_LOW/);
 console.log(JSON.stringify({status:'passed',installed_capacity:true,optional_suppression:true,production_floor:true,pending_recovery:true,network_requests:0,model_calls:0}));
 `],{cwd:target,encoding:'utf8',env:{...process.env,NODE_PATH:'',SYNTHETIC_CAPACITY_ROOT:path.join(e.evidence_root,'synthetic-capacity')},timeout:60000}).trim());
+
+// Sealed package read-only notification projection, without activation or transport.
+const notifications=execFileSync(process.execPath,['--import','tsx','--input-type=module','-e',`
+import assert from 'node:assert/strict';import fs from 'node:fs/promises';import path from 'node:path';
+import {alertStore} from './scripts/m1-alerts.mjs';import {notificationSummary} from './scripts/m1-notifications.mjs';
+const data=process.env.MFV_DATA_ROOT;await fs.mkdir(data,{recursive:true});
+for(const stream of ['default','execution','capacity'])await alertStore(data,{stream}).observe({task:'ops',observationId:'SYNTHETIC_'+stream,at:'2026-09-15T00:00:00Z',condition:{code:'STORAGE_UNWRITABLE',object:'inspection',severity:'critical'},guard:async()=>{}});
+const names=await fs.readdir(path.join(data,'m1-control'));const before=await Promise.all(names.map(n=>fs.readFile(path.join(data,'m1-control',n))));
+const first=await notificationSummary(data);assert.equal(first.pending_count,3);assert.equal(first.transport,'not_configured');assert.equal(first.delivery,'pending');assert.equal((await notificationSummary(data)).event_set_id,first.event_set_id);
+assert.deepEqual(await Promise.all(names.map(n=>fs.readFile(path.join(data,'m1-control',n)))),before);
+console.log(JSON.stringify({status:'passed',installed_notification_projection:true,outbox_unchanged:true,transport_configured:false,delivery_verified:false}));
+`],{cwd:target,encoding:'utf8',env:{...process.env,NODE_PATH:'',MFV_RUNTIME_HOME:e.evidence_root,MFV_DATA_ROOT:path.join(e.evidence_root,'synthetic-notifications')},timeout:30000});
+console.log(notifications.trim());

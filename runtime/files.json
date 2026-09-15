@@ -58,6 +58,7 @@
     "src/m1-display.ts",
     "src/m1-evaluation.ts",
     "scripts/m1-observation-alerts.mjs",
-    "scripts/m1-capacity.mjs"
+    "scripts/m1-capacity.mjs",
+    "scripts/m1-notifications.mjs"
   ]
 }

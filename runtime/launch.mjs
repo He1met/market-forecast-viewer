@@ -1,7 +1,7 @@
 // Stable installed launcher: resolve current once; every stage uses that pinned release.
 import fs from'node:fs/promises';import path from'node:path';import{spawn}from'node:child_process';
 const home=path.resolve(process.argv[2]??''),command=process.argv[3];
-if(!path.isAbsolute(process.argv[2]??'')||!['forecast','ops','serve','doctor','backup','pause','resume'].includes(command))throw Error('LAUNCH_ARGUMENTS_INVALID');
+if(!path.isAbsolute(process.argv[2]??'')||!['forecast','ops','serve','doctor','backup','pause','resume','notifications'].includes(command))throw Error('LAUNCH_ARGUMENTS_INVALID');
 if(await fs.realpath(home)!==home)throw Error('RUNTIME_HOME_SYMLINK');
 const installation=JSON.parse(await fs.readFile(path.join(home,'installation.local.json'),'utf8'));
 const current=JSON.parse(await fs.readFile(path.join(home,'current.json'),'utf8'));
