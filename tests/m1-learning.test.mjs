@@ -27,3 +27,13 @@ test('prospective experiment has one first-20 checkpoint and preserves failure d
  const guard=pairs.map(p=>({...p,candidate:{...p.candidate,brier:.321}}));assert.equal(evaluateExperiment(plan,guard).decision,'reject');
  assert.throws(()=>evaluateExperiment({...plan,candidate:{feedback:'F1',lambda:.1}},pairs),/SINGLE_FACTOR/);
 });
+
+test('unstarted opportunities retain the cap but not reliability denominator; candidate reliability is separate from pairing',async()=>{
+ const {evaluateExperiment}=await import('../scripts/m1-learning.mjs');const plan={schema:'MFV:EXPERIMENT:v1',factor:'feedback',control:{feedback:'F0'},candidate:{feedback:'F1'}};
+ const items=Array.from({length:30},(_,i)=>({id:String(i),anchor_time:100000+i*86400,registered_at:new Date((100000+i*86400)*1000).toISOString(),started:i>=10,finished:true,complete:i>=10,control:{valid:true,timely:true,path_loss:2,brier:.3},candidate:{valid:true,timely:true,path_loss:1.8,brier:.31}}));
+ let result=evaluateExperiment(plan,items);assert.equal(result.decision,'promote');assert.equal(result.registered,30);assert.equal(result.started,20);assert.equal(result.complete_pairs,20);assert.equal(result.timely_valid_rate,1);
+ for(let i=0;i<3;i++){items[i].started=true;items[i].candidate.valid=false;}
+ result=evaluateExperiment(plan,items);assert.equal(result.decision,'reject');assert.equal(result.started,23);assert.equal(result.timely_valid_rate,20/23);
+ for(let i=0;i<3;i++){items[i].candidate.valid=true;items[i].control.valid=false;}
+ result=evaluateExperiment(plan,items);assert.equal(result.timely_valid_rate,1);assert.equal(result.complete_pairs,20);
+});

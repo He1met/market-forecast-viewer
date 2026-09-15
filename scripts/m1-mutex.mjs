@@ -28,7 +28,7 @@ export async function businessMutex({dataRoot,port,releaseId,task='forecast'}){
  return{status:'ACQUIRED',token,guard,setChild,close};
  }catch(error){if(server.listening)await new Promise(r=>server.close(r));throw error;}
 }
-export async function managedProcess(command,args,{mutex,cwd,env,stdoutFile,stderrFile,timeoutMs,signal,input=''}={}){
+export async function managedProcess(command,args,{mutex,cwd,env,stdoutFile,stderrFile,timeoutMs,signal,input='',onStarted=async()=>{}}={}){
  await mutex.guard();check(Number.isFinite(timeoutMs)&&timeoutMs>0,'PROCESS_DEADLINE_REQUIRED');
  const out=await fs.open(stdoutFile,'wx',0o600);let err;
  try{err=await fs.open(stderrFile,'wx',0o600);return await new Promise((resolve,reject)=>{
@@ -36,7 +36,7 @@ export async function managedProcess(command,args,{mutex,cwd,env,stdoutFile,stde
   const kill=sig=>{if(identity&&groupAlive(child.pid)&&(!processIdentity(child.pid)||processIdentity(child.pid)===identity)){try{process.kill(-child.pid,sig);}catch(e){if(e.code!=='ESRCH')failure=e;}}};
   const stop=()=>{kill('SIGTERM');killTimer=setTimeout(()=>kill('SIGKILL'),2000);};
   child.stdin.on('error',e=>{if(e.code!=='EPIPE')failure=e;});
-  child.once('spawn',()=>{identity=processIdentity(child.pid);started=(async()=>{check(identity,'PROCESS_IDENTITY_UNAVAILABLE');await mutex.setChild({pid:child.pid,identity,command,started_at:new Date().toISOString()});timer=setTimeout(()=>{timedOut=true;stop();},timeoutMs);signal?.addEventListener('abort',stop,{once:true});if(signal?.aborted)stop();else child.stdin.end(input);})().catch(e=>{failure=e;stop();});});
-  child.once('error',e=>{failure=e;});child.once('close',async(code,signalCode)=>{try{await started;if(groupAlive(child.pid)){kill('SIGTERM');await new Promise(r=>setTimeout(r,500));if(groupAlive(child.pid))kill('SIGKILL');await new Promise(r=>setTimeout(r,100));check(!groupAlive(child.pid),'MANAGED_GROUP_STILL_RUNNING');}clearTimeout(timer);clearTimeout(killTimer);signal?.removeEventListener('abort',stop);await mutex.setChild(null);if(failure)reject(failure);else resolve({code,signal:signalCode,timedOut,pid:child.pid,identity});}catch(e){reject(e);}});
+  child.once('spawn',()=>{identity=processIdentity(child.pid);started=(async()=>{check(identity,'PROCESS_IDENTITY_UNAVAILABLE');const execution={pid:child.pid,identity,command,started_at:new Date().toISOString()};await mutex.setChild(execution);await onStarted(execution);timer=setTimeout(()=>{timedOut=true;stop();},timeoutMs);signal?.addEventListener('abort',stop,{once:true});if(signal?.aborted)stop();else child.stdin.end(input);})().catch(e=>{failure=e;stop();});});
+  child.once('error',e=>{failure=e;});child.once('close',async(code,signalCode)=>{try{await started;if(Number.isSafeInteger(child.pid)&&groupAlive(child.pid)){kill('SIGTERM');await new Promise(r=>setTimeout(r,500));if(groupAlive(child.pid))kill('SIGKILL');await new Promise(r=>setTimeout(r,100));check(!groupAlive(child.pid),'MANAGED_GROUP_STILL_RUNNING');}clearTimeout(timer);clearTimeout(killTimer);signal?.removeEventListener('abort',stop);await mutex.setChild(null);if(failure)reject(failure);else resolve({code,signal:signalCode,timedOut,pid:child.pid,identity});}catch(e){reject(e);}});
  });}finally{await out.close();await err?.close();}
 }

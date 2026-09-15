@@ -35,9 +35,9 @@ export function evaluateExperiment(plan,opportunities){
  check(plan.schema==='MFV:EXPERIMENT:v1'&&['feedback','probability','input'].includes(plan.factor),'EXPERIMENT_INVALID');check([...new Set([...Object.keys(plan.control),...Object.keys(plan.candidate)])].filter(k=>canonical(plan.control[k])!==canonical(plan.candidate[k])).length===1,'SINGLE_FACTOR_REQUIRED');
  const ordered=opportunities.slice().sort((a,b)=>a.anchor_time-b.anchor_time);check(new Set(ordered.map(x=>x.id)).size===ordered.length,'DUPLICATE_OPPORTUNITY');let end=-Infinity;for(const o of ordered){check(o.anchor_time>=end&&(!plan.created_at||time(plan.created_at)<=time(o.registered_at))&&time(o.registered_at)<Math.min(time(o.control?.started_at??'9999-01-01'),time(o.candidate?.started_at??'9999-01-01')),'OPPORTUNITY_NOT_PROSPECTIVE');end=o.anchor_time+86400;}
  const bounded=ordered.filter(o=>o.finished).slice(0,30);
- const complete=bounded.filter(o=>o.complete&&o.control.valid&&o.candidate.valid&&o.control.timely&&o.candidate.timely),finished=bounded;
+ const complete=bounded.filter(o=>o.started&&o.complete&&o.control.valid&&o.candidate.valid&&o.control.timely&&o.candidate.timely),finished=bounded;
  if(complete.length<20)return{decision:finished.length>=30?'insufficient_evidence':'waiting',complete_pairs:complete.length,finished:finished.length,registered:ordered.length,started:bounded.filter(o=>o.started).length};
- const pairs=complete.slice(0,20),checkpoint=bounded.slice(0,bounded.indexOf(pairs.at(-1))+1),started=checkpoint.filter(o=>o.started),valid=started.filter(o=>o.control?.valid&&o.candidate?.valid&&o.control.timely&&o.candidate.timely),timely=started.length?valid.length/started.length:0;
+ const pairs=complete.slice(0,20),checkpoint=bounded.slice(0,bounded.indexOf(pairs.at(-1))+1),started=checkpoint.filter(o=>o.started),valid=started.filter(o=>o.candidate?.valid&&o.candidate.timely),timely=started.length?valid.length/started.length:0;
  const metric=plan.factor==='probability'?'brier':'path_loss';const avg=(p,side,key)=>mean(p.map(x=>x[side][key]));
  const old=avg(pairs,'control',metric),now=avg(pairs,'candidate',metric);const improvement=old>0?(old-now)/old:null;
  const halves=[pairs.slice(0,10),pairs.slice(10)].every(p=>avg(p,'candidate',metric)<=avg(p,'control',metric));

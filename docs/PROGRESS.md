@@ -1,5 +1,17 @@
 # 开发进度与证据
 
+## 2026-09-15 自然续接：实验切换恢复与实际启动计数修复通过
+
+从干净 `0a8b40f6cac6fa0e434485352c5ecc554ab6d497` 续接 Issue15，fresh sync、CHECKPOINT_MATCH 与直接 A/B/C 授权已核实，未重复领取。
+
+- M15-INT-01：先原子保存固定决定、策略和回退计划身份，再幂等完成 decision/policy/rollback plan/active 写入。晋升、拒绝、证据不足和单次回退均覆盖每个写入边界中断；恢复不重新评分、不重复创建回退。ops 在业务锁内优先恢复。forecast 的 pending 检查和有效策略读取移至同一业务锁内、slot claim 之前，注册和输入冻结共用锁内配置；pending 不消耗 slot。
+- M15-INT-02：attempt reservation 与实际 execution 分开。模型候选成功启动受管进程、记录身份后且发送输入前保存 execution-started，绑定 run/attempt/input/reservation SHA；确定性概率后处理使用独立 execution mode。预检失败、预算跳过、spawn 失败不计实际启动；启动后失败、超时、中断保留分母。总登记数、启动数、完整配对分开，未启动仍在30次上限；候选及时有效率不混同正式方配对有效性。
+- 生命周期验证同时修复 spawn 失败无 PID 时的进程组检查，使原 ENOENT 正确保留。SYNTHETIC CLI 与真实本机 Node 子进程覆盖预检/预算/失败/超时/中断；概率候选走真实程序后处理，无模型调用。
+
+最终隔离 quality：Node152/152、Vitest、typecheck、build 全部通过，11份源码/测试与沙盒副本逐字节一致。首轮独立审查指出锁外读策略及 reservation 不等于执行，已修复；新增夹具清理顺序导致未退出、外部代码路径和路径类别失败均保留 LOCAL_ONLY，纠正夹具后通过，未削弱生产校验。无 Canvas/交互变更，未重复浏览器自测。
+
+监督独立核对11文件SHA/11副本/7证据SHA和5步exit0，将两项记为FIXED_VERIFIED，未独立重跑测试。当前批仅是工程修复增量；整套M1、安装版真实单轮、自然业务运行、方法效果仍未最终验收。下一步归档本批后续接安装级cycle/ops/恢复故障链、告警与正式候选材料；业务维护PAUSED，不自动合并main或激活正式包。
+
 ## 2026-09-15 自然续接：三项集成审查修复局部通过
 
 本轮scheduled从干净HEAD `538ffa7c5f7e2f4cebe3d40fef46d375765babee`恢复Issue15，CHECKPOINT_MATCH、fresh sync与当前直接授权均已核对；未重复领取。该HEAD的GitHub CI run34933285439四项任务全部success。
