@@ -30,7 +30,9 @@
     "m1:run": "node scripts/m1-installed.mjs forecast",
     "m1:ops": "node scripts/m1-installed.mjs ops",
     "m1:backup": "node scripts/m1-installed.mjs backup",
-    "m1:doctor": "node scripts/m1-installed.mjs doctor"
+    "m1:doctor": "node scripts/m1-installed.mjs doctor",
+    "m1:pause": "node scripts/m1-installed.mjs pause",
+    "m1:resume": "node scripts/m1-installed.mjs resume"
   },
   "dependencies": {
     "fancy-canvas": "2.1.0",

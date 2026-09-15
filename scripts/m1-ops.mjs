@@ -26,7 +26,7 @@ export async function scanOpsBatch({dataRoot,role,ids,visit,guard,limit=8,should
  }
  return{visited,outcomes,unresolved:[...unresolved.values()].map(x=>({role,...x}))};
 }
-export async function ops({codeRoot,dataRoot,port,releaseId,policy,paused=false,forecastPaused=true,expectedSince=null,outcomeTransport,refreshInputs=async()=>{}}){
+export async function ops({codeRoot,dataRoot,port,releaseId,policy,paused=false,forecastPaused=true,expectedSince=null,readForecastControl=async()=>({paused:forecastPaused,expectedSince}),outcomeTransport,refreshInputs=async()=>{}}){
  const slotHour=new Date().toISOString().slice(0,13),slotFile=path.join(dataRoot,'m1-control/ops-slots',slotHour.replace(/[^0-9]/g,'')+'.json');
  const start=performance.now(),id=randomUUID(),folder=path.join(dataRoot,'m1-observations',id),observation={schema:'MFV:OBSERVATION:v1',id,task:'ops',release_id:releaseId,started_at:new Date().toISOString()};await writeOnce(dataRoot,path.join(folder,'started.json'),observation);let mutex,result={status:'failed',reason:'incomplete'};
  try{if(paused){result={status:'skipped',reason:'paused'};return result;}mutex=await businessMutex({dataRoot,port,releaseId,task:'ops'});if(mutex.status!=='ACQUIRED'){result={status:'skipped',reason:mutex.status};return result;}
@@ -68,7 +68,7 @@ export async function ops({codeRoot,dataRoot,port,releaseId,policy,paused=false,
  }catch(e){result={status:'failed',reason:e.message};return result;}finally{
   try{
    if(mutex?.status==='ACQUIRED'&&result.status!=='skipped'){
-    try{result.publication_health=await publicationHealth({reader:createDisplayReader({root:codeRoot,dataRoot}),paused:forecastPaused,expectedSince});await observePublicationHealth(alertStore(dataRoot),result.publication_health,{observationId:id,guard:mutex.guard});const alerts=await alertStore(dataRoot).observe({task:'ops',observationId:id,at:new Date().toISOString(),condition:opsAlertCondition(result),guard:mutex.guard});result.alerts={delivery:alerts.pending.length?'pending':'none',event_ids:alerts.pending.map(x=>x.id)};}
+    try{result.publication_health=await publicationHealth({reader:createDisplayReader({root:codeRoot,dataRoot}),...await readForecastControl()});await observePublicationHealth(alertStore(dataRoot),result.publication_health,{observationId:id,guard:mutex.guard});const alerts=await alertStore(dataRoot).observe({task:'ops',observationId:id,at:new Date().toISOString(),condition:opsAlertCondition(result),guard:mutex.guard});result.alerts={delivery:alerts.pending.length?'pending':'none',event_ids:alerts.pending.map(x=>x.id)};}
     catch(e){Object.assign(result,{primary_status:result.status,status:'partial',alert_error:e.message,reason:result.reason??'alert_record_failed'});}
     await mutex.guard();await atomic(dataRoot,slotFile,{schema:'MFV:OPS_SLOT:v1',slot_hour:slotHour,status:result.status,observation_id:id,completed_at:new Date().toISOString()});
    }

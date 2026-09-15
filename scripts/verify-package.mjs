@@ -102,3 +102,17 @@ const result=await ops(options);assert.equal(result.status,'completed');assert.e
 const pending=await alertStore(root).pending();assert.equal(pending.length,1);assert.equal(pending[0].code,'FORECAST_OUTPUT_MISSING');assert.equal(pending[0].severity,'warning');assert.equal((await ops(options)).reason,'slot_completed');assert.equal((await alertStore(root).pending()).length,1);
 console.log(JSON.stringify({installed_missing_output:'passed',actual_prediction_invocations:0,delivery:'pending'}));
 `],{cwd:target,encoding:'utf8',env:{...process.env,NODE_PATH:'',SYNTHETIC_MISSING_ROOT:path.join(e.evidence_root,'synthetic-missing')},timeout:30000}));
+// Installed pause lifecycle uses the sealed package helper and real local config;
+// synthetic packages remain forbidden at the official activation/entry boundary.
+console.log(execFileSync(process.execPath,['--import','tsx','--input-type=module','-e',`
+import assert from 'node:assert/strict';import fs from 'node:fs/promises';import path from 'node:path';import net from 'node:net';
+import {setForecastPaused} from './scripts/m1-admin.mjs';import {atomic,validateInstallation} from './scripts/m1-files.mjs';import {publicationHealth} from './scripts/m1-publication-health.mjs';
+const home=path.join(process.env.MFV_RUNTIME_HOME,'pause-home'),data=path.join(process.env.MFV_RUNTIME_HOME,'pause-data');await fs.mkdir(home);await fs.mkdir(data);
+const s=net.createServer();await new Promise(r=>s.listen(0,'127.0.0.1',r));const port=s.address().port;await new Promise(r=>s.close(r));
+const file=path.join(home,'installation.local.json'),releaseId='a'.repeat(64);await atomic(home,file,{schema:'MFV:INSTALLATION:v1',runtime_home:home,data_root:data,http_port:port===65535?port-1:port+1,mutex_port:port,forecast_paused:true,ops_paused:true});await atomic(home,path.join(home,'current.json'),{release_id:releaseId});
+const change=(paused,at)=>setForecastPaused({runtimeHome:home,releaseId,paused,clock:()=>Date.parse(at)});
+await change(false,'2026-09-15T05:47:00Z');await change(true,'2026-09-15T06:00:00Z');assert.equal((await validateInstallation(file)).forecast_expected_since,null);
+await change(false,'2026-09-15T07:48:00Z');await change(false,'2026-09-15T08:00:00Z');const config=await validateInstallation(file);assert.equal(config.forecast_expected_since,'2026-09-15T07:48:00.000Z');assert.equal(config.ops_paused,true);
+const health=await publicationHealth({reader:{listRunIds:async()=>[]},paused:false,expectedSince:config.forecast_expected_since,now:Date.parse('2026-09-15T08:02:00Z')});assert.equal(health.status,'waiting');assert.equal(health.slots.length,0);
+console.log(JSON.stringify({status:'passed',installed_pause_epoch:true,paused_history_excluded:true,repeated_resume_idempotent:true,official_activation:false}));
+`],{cwd:target,encoding:'utf8',env:{...process.env,NODE_PATH:'',MFV_RUNTIME_HOME:e.evidence_root},timeout:30000}));

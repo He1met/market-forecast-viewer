@@ -4,7 +4,7 @@ export function scheduledSlot(now=Date.now()){
  const anchor=Math.floor((now/1000-6300)/7200)*7200+6300;
  return{schema:'MFV:SLOT:v1',slot_id:digest(`BTC-USDT-SWAP:900:86400:${anchor}`),instrument:'BTC-USDT-SWAP',bar_seconds:900,horizon_seconds:86400,anchor_time:anchor,target_at:new Date((anchor+120)*1000).toISOString(),first_node:anchor+900};
 }
-export async function cycle({dataRoot,releaseId,mutexPort,trigger='manual',paused=false,resolvePolicy=async()=>null,freeze,generate,publishIndex,scoreOld=async()=>{},registerOpportunity=async()=>null,prepareCandidate=async()=>null,runCandidate=async()=>{},finishOpportunity=async()=>{},clock=()=>Date.now(),monotonic=()=>performance.now()}){
+export async function cycle({dataRoot,releaseId,mutexPort,trigger='manual',paused=false,readPaused=async()=>paused,resolvePolicy=async()=>null,freeze,generate,publishIndex,scoreOld=async()=>{},registerOpportunity=async()=>null,prepareCandidate=async()=>null,runCandidate=async()=>{},finishOpportunity=async()=>{},clock=()=>Date.now(),monotonic=()=>performance.now()}){
  check(['manual','scheduled'].includes(trigger),'TRIGGER_INVALID');const started=monotonic(),slot=scheduledSlot(clock()),id=randomUUID(),folder=path.join(dataRoot,'m1-observations',id);
  const observation={schema:'MFV:OBSERVATION:v1',id,task:'forecast',trigger,slot_id:slot.slot_id,release_id:releaseId,started_at:new Date(clock()).toISOString(),status:'started'};await writeOnce(dataRoot,path.join(folder,'started.json'),observation);
  let mutex,claim,registration,candidate,official,candidateAttempted=false,finalizationAttempted=false,result={status:'failed',reason:'incomplete'};const publishDeadline=Math.min(started+600000,started+(slot.first_node*1000-clock())-30000),writeDeadline=publishDeadline-15000;
@@ -12,6 +12,7 @@ export async function cycle({dataRoot,releaseId,mutexPort,trigger='manual',pause
   if(paused){result={status:'skipped',reason:'paused'};return result;}
   if(clock()<Date.parse(slot.target_at)||publishDeadline-started<90000){result={status:'skipped',reason:'missed_slot'};return result;}
   mutex=await businessMutex({dataRoot,port:mutexPort,releaseId,task:'forecast'});if(mutex.status!=='ACQUIRED'){result={status:'skipped',reason:mutex.status};return result;}
+  if(await readPaused()){result={status:'skipped',reason:'paused'};return result;}
   const policy=await resolvePolicy({mutex});await mutex.guard();
   await atomic(dataRoot,path.join(dataRoot,'m1-task-status/forecast.json'),observation);
   claim=path.join(dataRoot,'m1-slots',slot.slot_id+'.json');if(await exists(claim)){result={status:'skipped',reason:'duplicate_slot',original:await readJson(dataRoot,claim)};return result;}

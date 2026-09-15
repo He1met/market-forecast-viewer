@@ -12,7 +12,27 @@ export async function activate({runtimeHome,releaseId,approval,config}){
  await writeOnce(runtimeHome,path.join(runtimeHome,'changes',randomUUID()+'.json'),{action:'activate',release_id:releaseId,previous,at:new Date().toISOString()});
  const approvalFile=path.join(runtimeHome,'approvals',releaseId+'.json');if(!await exists(approvalFile))await writeOnce(runtimeHome,approvalFile,approval);else check(JSON.stringify(await readJson(runtimeHome,approvalFile))===JSON.stringify(approval),'APPROVAL_ALREADY_DIFFERS');
  await atomic(runtimeHome,path.join(runtimeHome,'launch.mjs'),await readBytes(runtimeHome,path.join(runtimeHome,'releases',releaseId,'runtime/launch.mjs')));
- await atomic(runtimeHome,path.join(runtimeHome,'installation.local.json'),config);await atomic(runtimeHome,path.join(runtimeHome,'current.json'),{schema:'MFV:CURRENT:v1',release_id:releaseId,build_sha:manifest.build_sha,previous_release_id:previous?.release_id??null,activated_at:new Date().toISOString()});return{status:'activated_paused',release_id:releaseId};
+ await atomic(runtimeHome,path.join(runtimeHome,'installation.local.json'),{...config,forecast_expected_since:null});await atomic(runtimeHome,path.join(runtimeHome,'current.json'),{schema:'MFV:CURRENT:v1',release_id:releaseId,build_sha:manifest.build_sha,previous_release_id:previous?.release_id??null,activated_at:new Date().toISOString()});return{status:'activated_paused',release_id:releaseId};
+ }finally{await mutex.close();}
+}
+// The config rename commits pause state and its epoch together. Repeated resume
+// preserves the epoch; an interrupted pre-commit intent cannot change it.
+export async function setForecastPaused({runtimeHome,releaseId,paused,clock=()=>Date.now()}){
+ check(typeof paused==='boolean','PAUSE_VALUE_INVALID');
+ const file=path.join(runtimeHome,'installation.local.json'),before=await validateInstallation(file);
+ const mutex=await businessMutex({dataRoot:before.data_root,port:before.mutex_port,releaseId,task:'admin'});
+ check(mutex.status==='ACQUIRED',mutex.status);
+ try{
+  const config=await validateInstallation(file),current=await readJson(runtimeHome,path.join(runtimeHome,'current.json'));
+  check(config.data_root===before.data_root&&config.mutex_port===before.mutex_port,'INSTALLATION_CHANGED');
+  check(current.release_id===releaseId,'PINNED_RELEASE_MISMATCH');
+  const at=new Date(clock()).toISOString(),oldEpoch=config.forecast_expected_since;
+  const epoch=paused?null:config.forecast_paused===false&&Number.isFinite(Date.parse(oldEpoch))&&Date.parse(oldEpoch)<=Date.parse(at)?oldEpoch:at;
+  const next={...config,forecast_paused:paused,forecast_expected_since:epoch};
+  if(JSON.stringify(next)===JSON.stringify(config))return{status:'unchanged',forecast_paused:paused,forecast_expected_since:epoch};
+  await writeOnce(runtimeHome,path.join(runtimeHome,'changes',randomUUID()+'.json'),{action:paused?'forecast_pause':'forecast_resume',phase:'intent',at,before:config,after:next});
+  await mutex.guard();await atomic(runtimeHome,file,next);
+  return{status:'applied',forecast_paused:paused,forecast_expected_since:epoch,official_task_changed:false};
  }finally{await mutex.close();}
 }
 export async function disableLearning({dataRoot,port,releaseId,reason}){check(typeof reason==='string'&&reason.trim().length>0,'DISABLE_REASON_REQUIRED');const mutex=await businessMutex({dataRoot,port,releaseId,task:'admin'});check(mutex.status==='ACQUIRED',mutex.status);try{const file=path.join(dataRoot,'m1-learning/controls.json'),old=await exists(file)?await readJson(dataRoot,file):{disabled_scorers:[],revoked_revisions:[]},next={...old,reason,learning_disabled:true,effective_at:new Date().toISOString(),first_run_id:null};await writeOnce(dataRoot,path.join(dataRoot,'m1-learning/changes',randomUUID()+'.json'),next);await atomic(dataRoot,file,next);return next;}finally{await mutex.close();}}
