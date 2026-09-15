@@ -1,9 +1,11 @@
 import {notificationSummary} from './m1-notifications.mjs';
+import {doctor,doctorExitCode} from './m1-doctor.mjs';
 import {scoreOldForecasts} from './m1-ops.mjs';
 import {capacitySnapshot,requireCapacity} from './m1-capacity.mjs';
 import {setForecastPaused} from './m1-admin.mjs';
 import fs from'node:fs/promises';import path from'node:path';import{fileURLToPath}from'node:url';import{validateInstallation,readJson,writeOnce,atomic,check,exists}from'./m1-files.mjs';import{verifyPackage}from'./m1-package.mjs';import{serve}from'./m1-server.mjs';import{cycle}from'./m1-cycle.mjs';import{prepareForecast}from'./m1-input.mjs';import{generateInstalled,generateCandidate}from'./m1-model.mjs';import{createDisplayReader}from'./m1-display.mjs';import{projectionStore}from'./m1-index.mjs';import{ops}from'./m1-ops.mjs';import{backup,restore}from'./m1-backup.mjs';import{replayRestored}from'./m1-restore-replay.mjs';import{caseStore}from'./m1-cases.mjs';import{collectCalendar,collectDerivatives}from'./m1-public-data.mjs';import{experimentStore,effectivePolicy}from'./m1-experiments.mjs';import{supplementary}from'./m1-supplementary.mjs';import{startService,serviceStatus}from'./m1-service.mjs';
-export async function entry(command,home,releaseId){
+export async function entry(command,home,releaseId,args=[]){
+ check(args.length===0||(command==='doctor'&&args.length===1&&args[0]==='--full-audit'),'ENTRY_ARGUMENTS_INVALID');
  const codeRoot=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),config=await validateInstallation(path.join(home,'installation.local.json'));process.env.MFV_DATA_ROOT=config.data_root;process.env.MFV_RUNTIME_HOME=home;
  const manifest=await verifyPackage(codeRoot);check(manifest.release_id===releaseId,'PINNED_RELEASE_MISMATCH');
  const policy=manifest.policy.policy;
@@ -12,7 +14,7 @@ export async function entry(command,home,releaseId){
  if(['pause','resume'].includes(command))return setForecastPaused({runtimeHome:home,releaseId,paused:command==='pause'});
  const readForecastControl=async()=>{const fresh=await validateInstallation(path.join(home,'installation.local.json'));check(fresh.data_root===config.data_root&&fresh.mutex_port===config.mutex_port,'INSTALLATION_CHANGED');return{paused:fresh.forecast_paused!==false,expectedSince:fresh.forecast_expected_since??null};};
  if(command==='notifications')return notificationSummary(config.data_root);
- if(command==='doctor')return{schema:'MFV:DOCTOR:v1',release_id:releaseId,build_sha:manifest.build_sha,package_integrity:'verified',roots:'separate',production_paused:config.forecast_paused!==false,outer_hard_timeout_verified:false,capacity:await readCapacity()};
+ if(command==='doctor')return doctor({codeRoot,config,manifest,fullAudit:args[0]==='--full-audit'});
  if(command==='serve')return serve({codeRoot,dataRoot:config.data_root,port:config.http_port,readStatusOptions:async()=>{const current=await validateInstallation(path.join(home,'installation.local.json'));check(current.data_root===config.data_root,'STATUS_DATA_ROOT_CHANGED');return{paused:current.forecast_paused!==false,opsPaused:current.ops_paused!==false,expectedSince:current.forecast_expected_since??null};}});
  if(command==='ops'){const service=await serviceStatus({runtimeHome:home,port:config.http_port});if(service.status==='exited'&&config.service_paused===false)await startService({runtimeHome:home,port:config.http_port,releaseId,paused:false,automatic:true});return ops({codeRoot,dataRoot:config.data_root,port:config.mutex_port,releaseId,policy:policy,capacityPolicy:config.capacity,paused:config.ops_paused!==false,readForecastControl,forecastPaused:config.forecast_paused!==false,expectedSince:config.forecast_expected_since??null,refreshInputs:async({signal})=>{await collectDerivatives(config.data_root,{signal});await collectCalendar(config.data_root,{signal});}});}
  if(command==='backup'){
@@ -37,4 +39,4 @@ export async function entry(command,home,releaseId){
  runCandidate:generateCandidate,finishOpportunity:(registration,result)=>experimentStore(config.data_root).finish(registration,result),
  generate:async(prepared,options)=>{await caseStore({codeRoot,dataRoot:config.data_root}).recordFirstDisabledRun(prepared.run_id);return generateInstalled(prepared,options);},publishIndex:({mutex,deadline})=>projectionStore(config.data_root).update(createDisplayReader({root:codeRoot,dataRoot:config.data_root}),{limit:16,guard:mutex.guard,deadline})});
 }
-if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){entry(process.argv[2],process.argv[3],process.argv[4]).then(result=>{if(process.argv[2]!=='serve')console.log(JSON.stringify(result));}).catch(e=>{console.error(e.message);process.exitCode=1;});}
+if(process.argv[1]&&path.resolve(process.argv[1])===fileURLToPath(import.meta.url)){entry(process.argv[2],process.argv[3],process.argv[4],process.argv.slice(5)).then(result=>{if(process.argv[2]!=='serve')console.log(JSON.stringify(result));if(process.argv[2]==='doctor')process.exitCode=doctorExitCode(result);}).catch(e=>{console.error(e.message);process.exitCode=1;});}

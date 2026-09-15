@@ -33,6 +33,7 @@
     "scripts/m1-compat.mjs",
     "scripts/m1-cycle.mjs",
     "scripts/m1-display.mjs",
+    "scripts/m1-doctor.mjs",
     "scripts/m1-entry.mjs",
     "scripts/m1-events.mjs",
     "scripts/m1-experiments.mjs",

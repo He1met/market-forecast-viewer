@@ -1,5 +1,13 @@
 # 开发进度与证据
 
+## 2026-09-16 全工程审查与只读诊断修复
+
+从40b2b75精确git archive实际构建非synthetic候选包，独立依赖/Vite/闭包/667文件哈希通过；候选身份与保全包LOCAL_ONLY，未安装激活。监督逐项核对152个跟踪文件及候选包后，全A/B/C审查返回CHANGES_REQUIRED：FINAL-01维护CLI、02备份观察、03服务故障、04附加输入候选、05回退兼容、06doctor诊断。候选完整性通过不等于最终工程通过。
+
+本片仅修复M15-FINAL-06：默认doctor读取固定大小状态记录，显示包/三根/暂停、任务意图与官方状态unknown、被动互斥探测、最近预测/巡检/备份及学习控制；缺失/坏档显式unknown/unreadable。显式--full-audit遍历正式/候选/案例并只读回放，协作式预算耗尽为incomplete，未知目录格式或不可验证对象为failed；不补采、不评分写档、不争写锁或杀进程。安装helper、稳定launcher、entry均验证参数。备份观察尚未接通，缺失时保持unknown，不称FINAL-02已修。
+
+首轮隔离quality/package通过；自查修正候选审计runsRoot（初版role参数未被reader消费）。监督首审发现正常返回的evaluation失败会被漏判，已检查返回状态并区分合法未评分/缺数据，明确只核验最新revision及其引用capture、不声称全历史评分审计。审计failed/incomplete使CLI打印结果后exit2。新增正式/候选合成已发布原档损坏revision、capture、未知scorer及整树字节保持回归；首轮新增断言误把missing_data写作partial导致失败，修正为实际契约且保留首败。最终quality Node205/205、Vitest177/177、typecheck/build及package三步通过；监督v2核对9文件SHA、两份completed、14份受测副本与623项内部证据，FINAL-06 FIXED_VERIFIED/本片LOCAL_SLICE_PASSED，未重跑测试或运行安装entry。本段仅更新审查状态，受测代码未改变。没有页面变更，不重跑浏览器；完整工程仍CHANGES_REQUIRED，另外五项未修。业务维护PAUSED，安装版真实单轮/自然运行/方法效果未验证。
+
 ## 2026-09-16 官方任务差异与交付核对材料
 
 新增M1_HANDOFF，记录精确基线、三项业务任务正文模板、通知呈现边界、安装/配置/验收材料缺项与切换回退顺序。本轮回读发现chart-mvp实际每小时00分（文档意图12分），m1官方ACTIVE且仍用旧入口，但本地维护PAUSED标志保留；未发现ops/backup对应任务。仅保存实际配置与正文SHA，未修改任务或提前切包。上一片七文件SHA和两份completed收据一致，不重跑已通过测试。监督独立核对两文件冻结SHA，本片LOCAL_SLICE_PASSED，未重跑测试且不认证外部官方文档能力；按审查意见补明服务/manual验证需精确批准后逐项受控启用，随后仅更新文档状态。最终工程仍IN_PROGRESS，安装版真实单轮/自然运行/方法效果未验证。下一步审查本材料、准备精确候选包及真实安装配置，不以正文模板代替调度落地。

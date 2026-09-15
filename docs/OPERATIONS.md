@@ -49,6 +49,10 @@ rollback RUNTIME_HOME 只回到 previously approved 的旧 release，仍要求�
 
 ## 交付状态
 
+安装版 `npm run m1:doctor` 默认只读：返回精确包/三根路径/暂停意图、固定大小的最新预测/巡检/备份记录与学习控制、任务意图及被动业务互斥探测。设置 `MFV_RUNTIME_HOME` 指向已批准安装；也可执行 `node RUNTIME_HOME/launch.mjs RUNTIME_HOME doctor`。每个状态文件最多1MiB，缺失为unknown、坏档/超限/软链接为unreadable；历史记录不冒充本次验档，版本内任务意图不冒充官方当前任务回读。诊断包含本机路径，只能LOCAL_ONLY。当前备份观察链尚待补齐，缺失备份记录仍为unknown。
+
+显式 `npm run m1:doctor -- --full-audit`（或稳定启动器末尾加`--full-audit`）才遍历正式/候选原档与案例，重读最新核对及其引用capture、重算案例，不补采、不创建评分revision、不更新索引、不调用模型。历史全部revision不在此次范围，`historical_revisions_audited=false`；不称所有历史评分已通过。最新核对的failed/未知评分会计入失败，即使显示读取器未抛异常；合法not_evaluated单独计数，available记录中的部分观测/缺数据不当成坏档。30秒协作式预算仅在文件操作之间检查；预算耗尽/清单不可读为incomplete，损坏/不可资格化对象为failed，两者均打印JSON并退出2。该审计不是备份恢复演练，也不提供并发写入期间的事务快照。默认doctor不遍历原档；两种模式均不领取或恢复业务锁、不杀进程、不修文件。未知参数非0退出。
+
 分别报告工程验证、安装版真实单轮、至少两期自然运行、方法效果。测试成功、配置 ACTIVE、历史预测可读均不能替代后面三项证据。合并/正式切包前准备精确提交、CI、审查记录、候选包与配置差异供维护者确认。
 
 
