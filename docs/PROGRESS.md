@@ -1,5 +1,17 @@
 # 开发进度与证据
 
+## 2026-09-15 自然续接：三项集成审查修复局部通过
+
+本轮scheduled从干净HEAD `538ffa7c5f7e2f4cebe3d40fef46d375765babee`恢复Issue15，CHECKPOINT_MATCH、fresh sync与当前直接授权均已核对；未重复领取。该HEAD的GitHub CI run34933285439四项任务全部success。
+
+- M15-INT-03：`stat.dev`仅用于文件系统身份校验，不认证物理故障域。同文件系统记local-recovery，不同文件系统记unverified-target；均为fault_domain_verified=false并保存原因。目前尚无物理设备/批准远端证据核验入口，独立故障域备份验收仍未完成。
+- M15-INT-04：服务启动前独立探测TCP；仅ECONNREFUSED判空闲，其他探测错误保持未知。404、非HTTP、连接不返回数据均识别未知监听并拒绝启动/停止，不消耗重启预算。无owner和已退出owner均有回归覆盖。
+- M15-INT-05：反馈恢复“零尺度跳过”，构建器升为numeric-similarity-v2-skip-zero-scale。无可用尺度返回空案例及insufficient_nonzero_scale；单案例仍可进入基准计数，但不能作为相似反馈入选。合成严格案例冻结链、单位换算、手算距离和未来信息排除已验证；旧冻结反馈与真实链验收更正保持。
+
+实际验证：独立证据包装器quality通过，Node144/144、Vitest、typecheck和build通过；7个源码/测试文件与验证副本逐字节核对。首轮143/144，新单位换算测试错误要求浮点序列化逐字相同（约1e-16差异），改为排序一致及距离误差小于1e-12；同一输入的未来案例隔离仍要求完整字节一致。失败日志保留LOCAL_ONLY。未改Canvas/交互，未重跑浏览器。
+
+监督已按8文件精确SHA、7份源码/测试副本及5份日志哈希独立复核，将M15-INT-03/04/05记为FIXED_VERIFIED；审查方式为源码和既有测试证据核验，未由监督重跑quality。本文依据回执更新状态，未再改受审源码。M15-INT-01决定切换中断恢复、M15-INT-02候选启动分母，以及下述安装级集成事项仍待完成。业务维护PAUSED；工程、安装版真实单轮、自然业务运行和方法效果均未最终验收。下一动作：完成本批Git归档，然后续接01/02，不将本批报告当成整套M1批准。
+
 ## 2026-09-15 739c998 集成审查：CHANGES_REQUIRED
 
 739c998已普通提交/推送并回读；GitHub CI run34932906134的quality、runtime-package、browser、ci-required均实际success。但独立局部审查仍有5项未修复，全部仅RECEIVED_NOT_FIXED：实验决定/policy/active/回退的中断幂等恢复（P1）；候选登记与实际启动分母分离；不同文件系统设备号不能证明不同物理故障域；HTTP健康失败不能当作无TCP监听；零尺度维度必须按冻结规格跳过（后四项P2）。下一自然工作片优先逐项修复并验证，再继续其他安装级故障链与告警工作，不重复领取Issue15或声称已经完成。

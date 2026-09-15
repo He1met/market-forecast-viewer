@@ -4,6 +4,13 @@ import {randomUUID} from 'node:crypto';
 import {digest,readBytes,readJson,writeOnce,atomic,check,safePath,exists,within} from './m1-files.mjs';
 import {businessMutex} from './m1-mutex.mjs';
 const roots=['forecast-runs','data-source','m1-candidates','m1-outcomes','m1-runtime','m1-control','m1-slots','m1-observations','m1-task-status','m1-cases','m1-learning','m1-experiments','m1-derivatives','m1-calendar','m1-projections'];
+// stat.dev identifies a filesystem, not a physical disk or independent failure
+// domain (two APFS volumes on one disk can have different device numbers).
+export function backupFaultDomain(sourceDevice,targetDevice){return{
+ kind:String(sourceDevice)===String(targetDevice)?'local-recovery':'unverified-target',
+ fault_domain_verified:false,
+ fault_domain_reason:String(sourceDevice)===String(targetDevice)?'same_filesystem':'physical_device_or_approved_remote_evidence_missing',
+};}
 async function files(root,dir='') {
  const result=[];if(!await exists(path.join(root,dir)))return result;
  await safePath(root,path.join(root,dir));
@@ -45,7 +52,7 @@ export async function backup({dataRoot,runtimeHome,target,deviceId,minimumFreeBy
   }finally{await mutex.close();}
   await verifyBackupTarget({dataRoot,runtimeHome,target,deviceId:targetStat.dev,minimumFreeBytes:minimumFreeBytes+size});
   const id=new Date().toISOString().replace(/[-:.]/g,'')+'-'+randomUUID();
-  const manifest={schema:'MFV:BACKUP:v1',id,release_id:releaseId,captured_at:new Date().toISOString(),device_id:String(targetStat.dev),kind:sourceStat.dev===targetStat.dev?'local-recovery':'external-device',fault_domain_verified:sourceStat.dev!==targetStat.dev,runtime_included:Boolean(runtimeHome),files:captured.map(({archive,sha256,bytes})=>({name:archive,sha256,bytes:bytes.length})),total_bytes:size};
+  const manifest={schema:'MFV:BACKUP:v1',id,release_id:releaseId,captured_at:new Date().toISOString(),device_id:String(targetStat.dev),...backupFaultDomain(sourceStat.dev,targetStat.dev),runtime_included:Boolean(runtimeHome),files:captured.map(({archive,sha256,bytes})=>({name:archive,sha256,bytes:bytes.length})),total_bytes:size};
   for(const entry of captured){const object=path.join(target,'objects',entry.sha256);if(!await exists(object)){const temp=path.join(target,'staging',randomUUID());await writeOnce(target,temp,entry.bytes);check(digest(await readBytes(target,temp,256*1024*1024))===entry.sha256,'BACKUP_OBJECT_MISMATCH');await fs.mkdir(path.dirname(object),{recursive:true});await fs.rename(temp,object);}check(digest(await readBytes(target,object,256*1024*1024))===entry.sha256,'BACKUP_OBJECT_MISMATCH');}
   await writeOnce(target,path.join(target,'manifests',id+'.json'),manifest);if(slotFile)await writeOnce(target,slotFile,{id,slot_key:slotKey});return{status:'completed',manifest};
  });

@@ -1,4 +1,21 @@
-import test from'node:test';import assert from'node:assert/strict';import fs from'node:fs/promises';import path from'node:path';import os from'node:os';import http from'node:http';import{serviceStatus,startService,stopService}from'../scripts/m1-service.mjs';
+import test from'node:test';import assert from'node:assert/strict';import fs from'node:fs/promises';import path from'node:path';import os from'node:os';import http from'node:http';import net from'node:net';import{serviceStatus,startService,stopService}from'../scripts/m1-service.mjs';
+for(const protocol of ['http-404','non-http','stalled'])test(`unknown ${protocol} listener blocks launch without consuming restart budget`,async t=>{
+ const home=await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()),'mfv-foreign-service-'));
+ const sockets=new Set();const server=protocol==='http-404'?http.createServer((req,res)=>{res.writeHead(404);res.end('missing');}):net.createServer(socket=>{if(protocol==='non-http')socket.end('NOT HTTP\n');});
+ server.on('connection',socket=>{sockets.add(socket);socket.on('error',()=>{});socket.on('close',()=>sockets.delete(socket));});
+ await new Promise(r=>server.listen(0,'127.0.0.1',r));const port=server.address().port;
+ t.after(async()=>{for(const socket of sockets)socket.destroy();await new Promise(r=>server.close(r));await fs.rm(home,{recursive:true,force:true});});
+ await fs.mkdir(path.join(home,'service'));const budget='[{"at":0,"automatic":true}]';await fs.writeFile(path.join(home,'service/restarts.json'),budget);
+ for(const staleOwner of [false,true]){
+  if(staleOwner)await fs.writeFile(path.join(home,'service/owner.json'),JSON.stringify({pid:2147483647,identity:'SYNTHETIC_DEAD',token:'SYNTHETIC',release_id:'SYNTHETIC'}));
+  assert.equal((await serviceStatus({runtimeHome:home,port})).status,'unknown_listener');
+  await assert.rejects(()=>startService({runtimeHome:home,port,releaseId:'SYNTHETIC',paused:false,automatic:true}),/SERVICE_OWNER_OR_PORT_CONFLICT/);
+  await assert.rejects(()=>stopService({runtimeHome:home,port}),/SERVICE_IDENTITY_UNKNOWN/);
+  assert.equal(await fs.readFile(path.join(home,'service/restarts.json'),'utf8'),budget);
+  assert.equal(await fs.stat(path.join(home,'service/logs')).catch(()=>null),null);
+ }
+ assert.equal(server.listening,true);
+});
 test('service never stops or replaces an unknown listener and preserves foreign control lock',async t=>{
  const home=await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()),'mfv-service-'));t.after(()=>fs.rm(home,{recursive:true,force:true}));const server=http.createServer((req,res)=>res.end(JSON.stringify({ready:true,release_id:'FOREIGN'})));await new Promise(r=>server.listen(0,'127.0.0.1',r));t.after(()=>new Promise(r=>server.close(r)));const port=server.address().port;
  assert.equal((await serviceStatus({runtimeHome:home,port})).status,'unknown_listener');await assert.rejects(()=>startService({runtimeHome:home,port,releaseId:'SYNTHETIC',paused:false}),/SERVICE_OWNER_OR_PORT_CONFLICT/);await assert.rejects(()=>stopService({runtimeHome:home,port}),/SERVICE_IDENTITY_UNKNOWN/);assert.equal((await fetch('http://127.0.0.1:'+port+'/health')).status,200);

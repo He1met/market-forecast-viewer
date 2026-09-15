@@ -1,13 +1,22 @@
-import fs from 'node:fs/promises';import path from 'node:path';import {spawn} from 'node:child_process';import {randomUUID} from 'node:crypto';
+import fs from 'node:fs/promises';import path from 'node:path';import net from 'node:net';import {spawn} from 'node:child_process';import {randomUUID} from 'node:crypto';
 import {processIdentity} from './m1-mutex.mjs';import {readJson,atomic,exists,check,safePath} from './m1-files.mjs';
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 async function health(port){try{const response=await fetch(`http://127.0.0.1:${port}/health`,{signal:AbortSignal.timeout(1000)});return response.ok?await response.json():null;}catch{return null;}}
+// Only a refused TCP connection proves that this endpoint has no listener.
+// HTTP status, malformed responses and timeouts say nothing about occupancy.
+async function listener(port){return new Promise(resolve=>{
+ const socket=net.createConnection({host:'127.0.0.1',port});
+ const finish=state=>{socket.destroy();resolve(state);};
+ socket.once('connect',()=>finish('occupied'));
+ socket.once('error',error=>finish(error.code==='ECONNREFUSED'?'vacant':'unknown'));
+ socket.setTimeout(1000,()=>finish('unknown'));
+});}
 export async function serviceStatus({runtimeHome,port}){
- const file=path.join(runtimeHome,'service/owner.json'),owner=await exists(file)?await readJson(runtimeHome,file):null,response=await health(port);
- if(!owner)return{status:response?'unknown_listener':'not_started',owner:null};
+ const file=path.join(runtimeHome,'service/owner.json'),owner=await exists(file)?await readJson(runtimeHome,file):null,occupancy=await listener(port);
+ if(!owner)return{status:occupancy==='occupied'?'unknown_listener':occupancy==='vacant'?'not_started':'listener_unverified',owner:null};
  const identity=processIdentity(owner.pid);if(identity&&identity!==owner.identity)return{status:'identity_conflict',owner};
- if(identity)return{status:response?.owner_token===owner.token&&response?.release_id===owner.release_id?'healthy':'unhealthy',owner};
- return{status:response?'unknown_listener':'exited',owner};
+ if(identity){const response=await health(port);return{status:response?.owner_token===owner.token&&response?.release_id===owner.release_id?'healthy':'unhealthy',owner};}
+ return{status:occupancy==='occupied'?'unknown_listener':occupancy==='vacant'?'exited':'listener_unverified',owner};
 }
 async function startUnlocked({runtimeHome,port,releaseId,paused=true,automatic=false}){
  if(paused)return{status:'paused'};const state=await serviceStatus({runtimeHome,port});if(state.status==='healthy')return state;
