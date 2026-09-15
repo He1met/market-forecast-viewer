@@ -116,3 +116,51 @@ await change(false,'2026-09-15T07:48:00Z');await change(false,'2026-09-15T08:00:
 const health=await publicationHealth({reader:{listRunIds:async()=>[]},paused:false,expectedSince:config.forecast_expected_since,now:Date.parse('2026-09-15T08:02:00Z')});assert.equal(health.status,'waiting');assert.equal(health.slots.length,0);
 console.log(JSON.stringify({status:'passed',installed_pause_epoch:true,paused_history_excluded:true,repeated_resume_idempotent:true,official_activation:false}));
 `],{cwd:target,encoding:'utf8',env:{...process.env,NODE_PATH:'',MFV_RUNTIME_HOME:e.evidence_root},timeout:30000}));
+
+// Compose the real experiment/archive/model modules inside the sealed package.
+// Publication input/output is synthetic; no CLI model or market transport is used.
+const candidateChain=execFileSync(process.execPath,['--import','tsx','--input-type=module','-e',`
+import assert from 'node:assert/strict';import fs from 'node:fs/promises';import path from 'node:path';import net from 'node:net';
+import {experimentStore} from './scripts/m1-experiments.mjs';import {businessMutex} from './scripts/m1-mutex.mjs';
+import {newRun,readFrozen,freezeInput,prepareAttempt,completeAttempt,publishRun,readPublished} from './scripts/m1-archive.mjs';
+import {generateCandidate} from './scripts/m1-model.mjs';import {digest} from './scripts/m1-files.mjs';
+const data=process.env.MFV_DATA_ROOT,fixture=process.env.MFV_FIXTURE_ROOT;
+await fs.mkdir(data,{recursive:true});await fs.cp(path.join(fixture,'data-source'),path.join(data,'data-source'),{recursive:true});
+const fixtureId='m1-20260912T183644170Z-00000000-0000-4000-8000-000000000011';
+const input=JSON.parse(await fs.readFile(path.join(fixture,'forecast-runs',fixtureId,'input.json')));
+const raw=await fs.readFile(path.join(fixture,'forecast-runs',fixtureId,'attempt-001/raw-output.json'));
+const schema=JSON.parse(await fs.readFile(path.join(fixture,'forecast-runs',fixtureId,'output-schema.json')));
+const source=path.resolve('scripts/m1-model.mjs'),provenance={code_sha256:{[source]:digest(await fs.readFile(source))}};
+const socket=net.createServer();await new Promise(r=>socket.listen(0,'127.0.0.1',r));const port=socket.address().port;await new Promise(r=>socket.close(r));
+const mutex=await businessMutex({dataRoot:data,port,releaseId:'SYNTHETIC_CANDIDATE_CHAIN'});assert.equal(mutex.status,'ACQUIRED');
+try{
+ const store=experimentStore(data),baseline={predictor_version:'SYNTHETIC',model:'SYNTHETIC',reasoning_effort:'medium',additional_inputs:'none',feedback:'F0',lambda:0};
+ const plan=await store.create(baseline,{...baseline,lambda:.5},{guard:mutex.guard,factor:'probability'});
+ const registration=await store.register({slot_id:'SYNTHETIC_DAILY',anchor_time:Date.parse('2026-09-15T17:45:00Z')/1000},baseline,{guard:mutex.guard});assert.ok(registration);
+ const official=await newRun(path.join(data,'forecast-runs'));
+ const learning={lambda:0,base:{probabilities:Array(6).fill(1/6)},synthetic:true};input.model_context.learning=learning;
+ await freezeInput(official.runDir,input,'SYNTHETIC shared snapshot',schema,provenance);
+ const before=await readFrozen(official.runDir);let learningCalls=0;
+ const candidate=await store.freezeCandidate(registration,official,{guard:mutex.guard,learningBuilder:async(features,cutoff,policy)=>{learningCalls++;assert.deepEqual(features,input.features);assert.equal(cutoff,before.manifest.information_frozen_at);assert.deepEqual(policy,plan.candidate);return{...learning,lambda:policy.lambda};}});
+ assert.equal(candidate.probabilityOnly,true);assert.equal(learningCalls,1);
+ const frozen=await readFrozen(candidate.runDir);assert.deepEqual(frozen.input.history,before.input.history);assert.deepEqual(frozen.manifest.source_files,before.manifest.source_files);assert.deepEqual(frozen.input.events,before.input.events);
+ assert.equal((await readFrozen(official.runDir)).manifest.files['input.json'],before.manifest.files['input.json']);
+ const binding=JSON.parse(await fs.readFile(path.join(registration.dir,'frozen.json')));assert.equal(binding.official_input_hash,before.manifest.files['input.json']);assert.equal(binding.candidate_input_hash,frozen.manifest.files['input.json']);assert.equal(binding.market_hash,input.history.dataset_id);
+ await assert.rejects(()=>generateCandidate(candidate,{mutex,beforePublish:mutex.guard}),/PROBABILITY_SOURCE_NOT_PUBLISHED/);
+ await assert.rejects(()=>fs.stat(path.join(candidate.runDir,'attempt-001')),/ENOENT/);
+ const attempt=await prepareAttempt(official.runDir);await fs.writeFile(attempt.rawFile,raw);await completeAttempt(official.runDir,attempt.attempt_id,{exit_code:0,model_config:{synthetic:true}});const published=await publishRun(official.runDir,attempt.rawFile,{attempt_id:attempt.attempt_id});
+ // A missing CLI makes accidental model invocation fail, rather than use a real login.
+ for(const bin of ['/usr/bin/codex','/bin/codex'])await assert.rejects(()=>fs.stat(bin),/ENOENT/);
+ process.env.PATH='/usr/bin:/bin';
+ const result=await generateCandidate(candidate,{mutex,beforePublish:mutex.guard});
+ assert.deepEqual(result.forecast.scenarios.map(x=>x.prices),published.forecast.scenarios.map(x=>x.prices));
+ for(let i=0;i<6;i++)assert.ok(Math.abs(result.forecast.scenarios[i].probability_24h-(published.forecast.scenarios[i].probability_24h*.5+1/12))<1e-12);
+ assert.equal(result.receipt.raw_output_sha256,published.receipt.raw_output_sha256);
+ const execution=JSON.parse(await fs.readFile(path.join(candidate.runDir,'attempt-001/execution-started.json')));assert.equal(execution.mode,'deterministic_probability_postprocess');assert.equal(execution.process,null);
+ await store.finish(registration,{candidate_invoked:true,official_run_id:official.run_id,candidate_run_id:candidate.run_id,candidate_status:'published'});
+ assert.equal(await store.register({slot_id:'SYNTHETIC_DAILY',anchor_time:registration.opportunity.anchor_time},baseline,{guard:mutex.guard}),null);
+ assert.equal((await readPublished(candidate.runDir)).forecast.run_id,candidate.run_id);
+ console.log(JSON.stringify({status:'passed',installed_candidate_chain:true,common_market_hash_verified:true,frozen_binding_verified:true,unpublished_source_rejected:true,paths_unchanged:true,probability_transform_verified:true,actual_start_recorded:true,opportunity_deduplicated:true,model_calls:0,market_requests:0,real_timeliness_verified:false}));
+}finally{await mutex.close();}
+`],{cwd:target,encoding:'utf8',env:{...process.env,NODE_PATH:'',MFV_RUNTIME_HOME:e.evidence_root,MFV_DATA_ROOT:path.join(e.evidence_root,'synthetic-candidate-chain'),MFV_FIXTURE_ROOT:dataRoot},timeout:30000});
+console.log(candidateChain.trim());
