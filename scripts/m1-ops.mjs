@@ -49,9 +49,10 @@ export async function scoreOldForecasts({codeRoot,dataRoot,mutex,signal,deadline
  }});
  return{status:batch.unresolved.length||batch.visited<ids.length?'partial':'completed',...batch};
 }
-export async function ops({codeRoot,dataRoot,port,releaseId,policy,paused=false,forecastPaused=true,expectedSince=null,readForecastControl=async()=>({paused:forecastPaused,expectedSince}),capacityPolicy,capacityStatfs,outcomeTransport,refreshInputs=async()=>{}}){
+export async function ops({codeRoot,dataRoot,port,releaseId,policy,trigger='manual',taskId=null,threadId=null,paused=false,forecastPaused=true,expectedSince=null,readForecastControl=async()=>({paused:forecastPaused,expectedSince}),capacityPolicy,capacityStatfs,outcomeTransport,refreshInputs=async()=>{}}){
+ check(['manual','scheduled'].includes(trigger),'TRIGGER_INVALID');for(const value of [taskId,threadId])check(value===null||(typeof value==='string'&&value.length>0&&value.length<=200),'INVOCATION_ID_INVALID');
  const slotHour=new Date().toISOString().slice(0,13),slotFile=path.join(dataRoot,'m1-control/ops-slots',slotHour.replace(/[^0-9]/g,'')+'.json');
- const start=performance.now(),id=randomUUID(),folder=path.join(dataRoot,'m1-observations',id),observation={schema:'MFV:OBSERVATION:v1',id,task:'ops',release_id:releaseId,started_at:new Date().toISOString()};await writeOnce(dataRoot,path.join(folder,'started.json'),observation);let mutex,result={status:'failed',reason:'incomplete'};
+ const start=performance.now(),id=randomUUID(),folder=path.join(dataRoot,'m1-observations',id),observation={schema:'MFV:OBSERVATION:v1',id,task:'ops',trigger,task_id:taskId,thread_id:threadId,status:'started',release_id:releaseId,started_at:new Date().toISOString()};await writeOnce(dataRoot,path.join(folder,'started.json'),observation);let mutex,result={status:'failed',reason:'incomplete'};
  try{if(paused){result={status:'skipped',reason:'paused'};return result;}mutex=await businessMutex({dataRoot,port,releaseId,task:'ops'});if(mutex.status!=='ACQUIRED'){result={status:'skipped',reason:mutex.status};return result;}
   if(await exists(slotFile)&&(await readJson(dataRoot,slotFile)).status==='completed'){result={status:'skipped',reason:'slot_completed'};return result;}
   await atomic(dataRoot,slotFile,{schema:'MFV:OPS_SLOT:v1',slot_hour:slotHour,status:'running',observation_id:id,started_at:observation.started_at});

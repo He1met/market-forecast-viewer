@@ -1,5 +1,11 @@
 # 开发进度与证据
 
+## 2026-09-16 备份观察与恢复未完成语义
+
+Issue15 FINAL-02：安装backup入口接入独立started/result，记录真实触发、显式任务ID、实际线程ID；缺身份为null，不伪造调度来源。目标缺失、锁忙、容量不足与恢复失败保留独立结果；复制释放业务锁后重新获取才更新共享最近尝试和完整成功，未知锁不抢写。ops可用既有观察归集消费备份结果，doctor读取最近备份。恢复有游标但未完成为partial，恢复失败为failed；完整成功记录仅在备份与本轮必需自检均完成后刷新。
+
+隔离quality首轮Node224/224、Vitest177/177、typecheck/build与固定包三步通过；实际backup/restore组合覆盖周日部分恢复、同日幂等续接、缺目标、锁忙保留及后续归集、回放失败、身份缺失。固定包以正式/候选/成熟评分/案例合成原档运行恢复链，未正式激活安装entry或创建业务调度。首审备份片LOCAL_SLICE_PASSED；指出FINAL-02原要求还含forecast/ops身份尾项，本轮继续统一entry传参、forecast/ops独立记录task/thread、ops触发类型与started状态，新增暂停记录/未知身份/非法参数回归，并修正doctor旧提示。最终quality Node226/226、Vitest177/177、typecheck/build与固定包三步通过；监督v2核对12文件SHA、两套各9非文档副本、两份completed及741项内部证据，FINAL-02 FIXED_VERIFIED / LOCAL_SLICE_PASSED，未重跑测试或运行正式entry。随后仅更新本段审查状态，受测代码未变。完整工程CHANGES_REQUIRED，FINAL-01/03/04仍开放；正式任务身份注入与自然运行仍待部署验收，业务PAUSED。
+
 ## 2026-09-16 部署入口与切换前 HTTP 检查
 
 从0b4778c恢复Issue15，新增m1:deploy精确release及显式批准/配置参数。既有维护者精确包批准、三项暂停、SYNTHETIC拒绝与旧档兼容门禁保留。业务锁内用目标包在固定本机端口做只读health/runtime/page及已有index检查，15秒子进程截止，检查结束释放端口；不留运行服务。首次缺投影明确not_initialized，已有坏投影拒绝。成功只是activated_paused，切换前目标HTTP不冒充已安装entry端到端验证。

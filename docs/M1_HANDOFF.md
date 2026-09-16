@@ -33,7 +33,7 @@
 
 ### 备份任务
 
-读取本自动化 memory 和已核验安装收据，仅在收据绑定的 RUNTIME_HOME 工作。核对稳定启动器、current release 与维护者精确批准；不一致停止。只执行 `MFV_TRIGGER=scheduled node RUNTIME_HOME/launch.mjs RUNTIME_HOME backup`，人工试跑用 manual，并记录真实任务/线程/触发。备份目标和设备身份必须与安装收据一致，不能创建离线设备的替代目录。日常幂等及周日恢复由同一脚本决定；记录backup_id、恢复游标、实际成功/未完成/失败，不将复制完成当成全恢复通过。不删除原档、旧备份，不向GitHub上传真实材料，不在脚本之外循环重试。按下述通知规则读取摘要并更新memory。不得修改安装配置或运行其他业务入口。
+读取本自动化 memory 和已核验安装收据，仅在收据绑定的 RUNTIME_HOME 工作。核对稳定启动器、current release 与维护者精确批准；不一致停止。只执行 `MFV_TRIGGER=scheduled MFV_TASK_ID=REAL_TASK_ID node RUNTIME_HOME/launch.mjs RUNTIME_HOME backup`，人工试跑用 manual，并记录真实任务/线程/触发。备份目标和设备身份必须与安装收据一致，不能创建离线设备的替代目录。日常幂等及周日恢复由同一脚本决定；记录backup_id、恢复游标、实际成功/未完成/失败，不将复制完成当成全恢复通过。不删除原档、旧备份，不向GitHub上传真实材料，不在脚本之外循环重试。按下述通知规则读取摘要并更新memory。不得修改安装配置或运行其他业务入口。
 
 ### 三项任务共用通知规则（应用时拼入各正文）
 

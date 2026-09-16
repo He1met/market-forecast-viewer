@@ -5,9 +5,10 @@ export function scheduledSlot(now=Date.now()){
  const anchor=Math.floor((now/1000-6300)/7200)*7200+6300;
  return{schema:'MFV:SLOT:v1',slot_id:digest(`BTC-USDT-SWAP:900:86400:${anchor}`),instrument:'BTC-USDT-SWAP',bar_seconds:900,horizon_seconds:86400,anchor_time:anchor,target_at:new Date((anchor+120)*1000).toISOString(),first_node:anchor+900};
 }
-export async function cycle({dataRoot,releaseId,mutexPort,trigger='manual',paused=false,readPaused=async()=>paused,resolvePolicy=async()=>null,readCapacity,freeze,generate,publishIndex,scoreOld=async()=>{},registerOpportunity=async()=>null,prepareCandidate=async()=>null,runCandidate=async()=>{},finishOpportunity=async()=>{},clock=()=>Date.now(),monotonic=()=>performance.now()}){
+export async function cycle({dataRoot,releaseId,mutexPort,trigger='manual',taskId=null,threadId=null,paused=false,readPaused=async()=>paused,resolvePolicy=async()=>null,readCapacity,freeze,generate,publishIndex,scoreOld=async()=>{},registerOpportunity=async()=>null,prepareCandidate=async()=>null,runCandidate=async()=>{},finishOpportunity=async()=>{},clock=()=>Date.now(),monotonic=()=>performance.now()}){
+ for(const value of [taskId,threadId])check(value===null||(typeof value==='string'&&value.length>0&&value.length<=200),'INVOCATION_ID_INVALID');
  check(['manual','scheduled'].includes(trigger),'TRIGGER_INVALID');const started=monotonic(),slot=scheduledSlot(clock()),id=randomUUID(),folder=path.join(dataRoot,'m1-observations',id);
- const observation={schema:'MFV:OBSERVATION:v1',id,task:'forecast',trigger,slot_id:slot.slot_id,release_id:releaseId,started_at:new Date(clock()).toISOString(),status:'started'};await writeOnce(dataRoot,path.join(folder,'started.json'),observation);
+ const observation={schema:'MFV:OBSERVATION:v1',id,task:'forecast',trigger,task_id:taskId,thread_id:threadId,slot_id:slot.slot_id,release_id:releaseId,started_at:new Date(clock()).toISOString(),status:'started'};await writeOnce(dataRoot,path.join(folder,'started.json'),observation);
  let mutex,claim,registration,candidate,official,capacity,oldResults,candidateAttempted=false,candidateCapacitySkipped=false,finalizationAttempted=false,result={status:'failed',reason:'incomplete'};const publishDeadline=Math.min(started+600000,started+(slot.first_node*1000-clock())-30000),writeDeadline=publishDeadline-15000;
  try{
   if(paused){result={status:'skipped',reason:'paused'};return result;}

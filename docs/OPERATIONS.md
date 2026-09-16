@@ -43,6 +43,8 @@ rollback RUNTIME_HOME 只回到 previously approved 的旧 release，仍要求�
 
 备份短暂持有业务锁捕获稳定文件，并二次核对捕获期间的字节；释放业务锁后通过独立备份锁复制和校验对象，最后提交 manifest。覆盖行情原始分页、正式/候选预测、核对结果、案例/实验/补充输入、控制与运行记录，以及 runtime 安装/release 信息。日志变化使本次捕获失败，不能把变化尾部写成稳定备份。
 
+forecast/ops/backup 的独立 started/result 记录包含真实 MFV_TRIGGER、MFV_TASK_ID 和 CODEX_THREAD_ID；外层必须传入实际任务 ID，不推测不存在的调度环境变量，未提供身份明确保存 null。共享 backup.json 与 last-backup-success.json 仅在取得业务锁后更新；锁忙仍保留独立结果供后续 ops 归集，不改他人的共享状态。恢复未完成返回 partial，失败返回 failed，不刷新完整成功；已完成的快照 ID 独立保留。doctor 可读取最近备份摘要，尚未运行不能显示成功。
+
 每日 backup slot 去重；周日启动恢复检查，未完成检查后续轮继续。恢复到新隔离目录，逐对象校验并保存游标；每批有时间/对象上限。回放原预测、重算已有核对及读取案例后才写完整恢复收据。运行指针、安装配置、活动 owner 和任务状态不会恢复为可运行状态。源沙盒删除/篡改演练不触碰真实原档。
 
 同盘副本仅为 local-recovery。外部故障域必须按真实备份设备另行验收；不自动删除原档或旧备份、不上传原始材料。剩余空间不足则拒绝大备份并保留失败。

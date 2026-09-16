@@ -98,6 +98,11 @@ assert.equal(capture.status,'ok');const revision=await store.evaluateCapture(run
 const originalCase=await caseStore({codeRoot:process.cwd(),dataRoot:data}).create(id,revision.revision_id);
 await fs.cp(path.join(data,'forecast-runs',id),path.join(data,'m1-candidates',id),{recursive:true});
 const socket=net.createServer();await new Promise(r=>socket.listen(0,'127.0.0.1',r));const port=socket.address().port;await new Promise(r=>socket.close(r));
+const {backupCycle}=await import('./scripts/m1-backup-cycle.mjs');
+const cycleOptions={codeRoot:process.cwd(),config:{data_root:data,mutex_port:port,backup:{target}},releaseId:'SYNTHETIC_INSTALLED_RESTORE',trigger:'scheduled',taskId:'synthetic-backup-task',threadId:'synthetic-backup-thread',clock:()=>Date.parse('2026-09-20T00:00:00Z')};
+const cyclePartial=await backupCycle({...cycleOptions,restoreMaxFiles:1});assert.equal(cyclePartial.status,'partial');assert.equal(cyclePartial.trigger,'scheduled');assert.equal(await fs.stat(path.join(data,'m1-task-status/last-backup-success.json')).catch(()=>null),null);
+const cycleComplete=await backupCycle(cycleOptions);assert.equal(cycleComplete.status,'completed');assert.equal(cycleComplete.restore_check.replay.candidate_count,1);assert.equal(cycleComplete.restore_check.replay.case_count,1);
+const cycleStatus=JSON.parse(await fs.readFile(path.join(data,'m1-task-status/backup.json')));assert.equal(cycleStatus.task_id,'synthetic-backup-task');assert.equal(cycleStatus.thread_id,'synthetic-backup-thread');
 const saved=await backup({dataRoot:data,target,port,releaseId:'SYNTHETIC_INSTALLED_RESTORE',slotKey:'SYNTHETIC_WEEKLY'});assert.equal(saved.status,'completed');
 const again=await backup({dataRoot:data,target,port,releaseId:'SYNTHETIC_INSTALLED_RESTORE',slotKey:'SYNTHETIC_WEEKLY'});assert.equal(again.already_completed,true);assert.equal(again.manifest.id,saved.manifest.id);
 await fs.rm(path.join(data,'forecast-runs'),{recursive:true});await fs.writeFile(path.join(data,'m1-candidates',id,'manifest.json'),'SYNTHETIC_SOURCE_TAMPERED');

@@ -129,6 +129,6 @@ export async function doctor({codeRoot, config, manifest, fullAudit = false}) {
     audit: fullAudit ? await auditArchives({codeRoot, dataRoot: data}) : {status: 'not_requested'},
     limitations: ['Recorded summaries are not current archive verification or official task state.',
       'Reads are non-transactional. Unknown or unreadable records do not imply success.',
-      'Backup observation integration remains pending; missing backup summaries stay unknown.']};
+      'Missing backup summaries stay unknown; independent results may await a mutex-owned summary update.']};
   return result;
 }
