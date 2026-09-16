@@ -136,7 +136,7 @@ function onlineFixture(number = 11) {
   const gate = { id: 2, user: { id: 65616876 }, state: 'COMMENTED',
     body: '<!-- MFV:SUPERVISOR:v1 -->\n- review_id: fixture-approved\nOnly the described task is approved.',
     commit_id: 'base', submitted_at: '2026-09-12T00:00:00Z', html_url: 'review/2' };
-  const pr = { state: 'open', head: { ref: 'feat/chart-mvp', sha: 'head', repo: { full_name: 'He1met/market-forecast-viewer' } } };
+  const pr = { state: 'open', base: { ref: 'main' }, head: { ref: 'feat/chart-mvp', sha: 'head', repo: { full_name: 'He1met/market-forecast-viewer' } } };
   const tasks = [task];
   const comments = [];
   const get = endpoint => endpoint.startsWith('issues?') ? tasks
@@ -163,6 +163,86 @@ test('sync only collects evidence; reviewed development task is admitted without
   x.task.number = 42; x.task.body += '- phase: FUTURE\n';
   syncInbox(c, 'first', x.get);
   assert.deepEqual(verifyRelease(c, 'first', x.evidence(c), x.get).candidates.map(x => x.issue_number), [42]);
+});
+
+test('explicit new PR binding survives merged baseline and gates release and local branch', t => {
+  const { c, git } = fixture(t); acquire(c, { ...owner(), issue_number: 0 });
+  const x = onlineFixture(); Object.assign(x.pr, { state: 'closed', merged_at: '2026-09-16T08:06:42Z', merge_commit_sha: 'a'.repeat(40) });
+  const delivery = { pr_number: 16, branch: 'chore/15-policy' };
+  const pr = { state: 'open', base: { ref: 'main' }, head: { ref: delivery.branch, sha: 'new-head', repo: { full_name: 'He1met/market-forecast-viewer' } } };
+  const get = endpoint => endpoint === 'pulls/16' ? [pr]
+    : endpoint.startsWith('pulls/16/reviews') ? [] : x.get(endpoint);
+  assert.equal(syncInbox(c, 'first', get).gate_result, 'MERGED_DELIVERY_READ_ONLY');
+  syncInbox(c, 'first', get, delivery);
+  assert.deepEqual(verifyRelease(c, 'first', x.evidence(c), get).candidates.map(v => v.issue_number), [11]);
+  assert.throws(() => claim(c, 'first'), /WRONG_BRANCH/);
+  git('checkout', '-b', delivery.branch);
+  assert.equal(claim(c, 'first').status, 'CLAIMED');
+  assert.deepEqual(JSON.parse(fs.readFileSync(c.state)).delivery, { ...delivery, state: 'open', merge_commit_sha: null });
+  syncInbox(c, 'first', get); // Uses persisted delivery, never old PR7.
+  const evidence = x.evidence(c); pr.head.sha = 'changed-head';
+  assert.throws(() => verifyRelease(c, 'first', evidence, get), /REMOTE_CHANGED/);
+  assert.equal(localQueue(c).status, 'INVALID_OR_EXPIRED_INBOX');
+});
+
+test('delivery rejects invalid IDs, closed or foreign PRs, wrong branch and wrong base', t => {
+  const { c } = fixture(t); acquire(c, owner()); const x = onlineFixture();
+  for (const delivery of [{ pr_number: 0, branch: 'feat/chart-mvp' }, { pr_number: 7, branch: 'main' }, { pr_number: 7, branch: '../bad' }]) {
+    assert.throws(() => syncInbox(c, 'first', x.get, delivery), /INVALID_DELIVERY_BINDING/);
+    assert.equal(localQueue(c).status, 'INVALID_OR_EXPIRED_INBOX');
+  }
+  for (const mutate of [() => { x.pr.state = 'closed'; }, () => { x.pr.head.ref = 'other'; },
+    () => { x.pr.base.ref = 'other'; }, () => { x.pr.head.repo.full_name = 'foreign/repo'; }]) {
+    x.pr.state = 'open'; x.pr.head.ref = 'feat/chart-mvp'; x.pr.base.ref = 'main'; x.pr.head.repo.full_name = 'He1met/market-forecast-viewer';
+    mutate(); assert.throws(() => syncInbox(c, 'first', x.get), /WRONG_REMOTE_BASELINE/);
+  }
+});
+
+test('merged delivery sync remains read-only and cannot release or claim new tasks', t => {
+  const { c } = fixture(t); acquire(c, { ...owner(), issue_number: 0 }); const x = onlineFixture();
+  syncInbox(c, 'first', x.get); verifyRelease(c, 'first', x.evidence(c), x.get);
+  x.pr.state = 'closed'; x.pr.merged_at = '2026-09-16T08:06:42Z'; x.pr.merge_commit_sha = 'a'.repeat(40);
+  assert.equal(syncInbox(c, 'first', x.get).gate_result, 'MERGED_DELIVERY_READ_ONLY');
+  const first = JSON.parse(fs.readFileSync(path.join(c.base, 'inbox.json')));
+  syncInbox(c, 'first', x.get);
+  const second = JSON.parse(fs.readFileSync(path.join(c.base, 'inbox.json')));
+  assert.equal(second.remote_snapshot_sha256, first.remote_snapshot_sha256);
+  assert.equal(second.delivery.merge_commit_sha, 'a'.repeat(40));
+  assert.deepEqual(second.releases, []);
+  assert.equal(localQueue(c).candidates.length, 0);
+  assert.equal(claim(c, 'first').status, 'MERGED_DELIVERY_READ_ONLY');
+  const pending = { ...issueStamp(x.task), phase: 'implementing', next_step: 'fixture' };
+  fs.writeFileSync(c.state, JSON.stringify(pending));
+  const bytes = fs.readFileSync(c.state, 'utf8');
+  assert.equal(claim(c, 'first').status, 'MERGED_DELIVERY_READ_ONLY');
+  assert.equal(fs.readFileSync(c.state, 'utf8'), bytes);
+  assert.throws(() => verifyRelease(c, 'first', x.evidence(c), x.get), /DELIVERY_NOT_OPEN/);
+  assert.equal(localQueue(c).status, 'INVALID_OR_EXPIRED_INBOX');
+  delete x.pr.merge_commit_sha;
+  assert.throws(() => syncInbox(c, 'first', x.get), /WRONG_REMOTE_BASELINE/);
+});
+
+test('inconsistent merge identities and merge during double-read invalidate snapshots', t => {
+  const { c } = fixture(t); acquire(c, owner()); const x = onlineFixture();
+  x.pr.state = 'closed'; x.pr.merged_at = '2026-09-16T08:06:42Z'; x.pr.merge_commit_sha = 'a'.repeat(40);
+  for (const patch of [{ merged: false }, { merged_at: 'invalid' }, { merge_commit_sha: 'abc' }, { state: 'open', merged: true }]) {
+    const before = structuredClone(x.pr);Object.assign(x.pr, patch);
+    assert.throws(() => syncInbox(c, 'first', x.get), /WRONG_REMOTE_BASELINE/);
+    Object.assign(x.pr, before);delete x.pr.merged;
+  }
+  x.pr.state = 'open';delete x.pr.merged_at;delete x.pr.merge_commit_sha;
+  let reads = 0;
+  const get = endpoint => {
+    if (endpoint === 'pulls/7' && ++reads === 2) Object.assign(x.pr, { state: 'closed', merged_at: '2026-09-16T08:06:42Z', merge_commit_sha: 'a'.repeat(40) });
+    return x.get(endpoint);
+  };
+  assert.throws(() => syncInbox(c, 'first', get), /REMOTE_CHANGED_DURING_SYNC/);
+  assert.equal(localQueue(c).status, 'INVALID_OR_EXPIRED_INBOX');
+  reads = 0;
+  assert.throws(() => syncInbox(c, 'first', endpoint => {
+    if(endpoint === 'pulls/7' && ++reads === 2)x.pr.merge_commit_sha='b'.repeat(40);
+    return x.get(endpoint);
+  }), /REMOTE_CHANGED_DURING_SYNC/);
 });
 test('failed or inconsistent online sync invalidates old ready; scheduled claim requires same-run sync', t => {
   const { c } = fixture(t); inbox(c); acquire(c, { ...owner(), issue_number: 0, trigger: 'scheduled' });

@@ -51,14 +51,18 @@ async function evidence(page:Page,name:string,project:string,kind:'real'|'synthe
  await page.screenshot({path:file,fullPage:true});await writeFile(file+'.json',JSON.stringify({visibility:'LOCAL_ONLY',evidence_kind:kind,user_approved:false,viewport:page.viewportSize(),dpr:await page.evaluate(()=>devicePixelRatio),screenshot_sha256:createHash('sha256').update(await readFile(file)).digest('hex'),snapshot:await snapshot(page)},null,2));
 }
 async function actualAligned(page:Page){
- await expect.poll(async()=>{const s=await snapshot(page);return s.actualCoordinates.length&&s.actualCoordinates.every((p:any)=>p.x!==null&&p.y!==null&&Math.abs(p.y-p.supportY)<=1);}).toBe(true);
- const state=await snapshot(page);
- // Verify rendered white actual-line pixels near the chart's price/time coordinates.
- const visible=await page.locator('#chart canvas').first().evaluate((canvas:HTMLCanvasElement,points:any[])=>{
+ let state:any;
+ // Coordinates may update before Canvas paints. Read both in the same browser
+ // evaluation and poll the unchanged pixel/alignment requirements until painted.
+ await expect.poll(async()=>{
+ const result=await page.locator('#chart canvas').first().evaluate((canvas:HTMLCanvasElement)=>{
+  const state=(window as any).chartTest.snapshot(),points=state.actualCoordinates;
+  if(!points.length||!points.every((p:any)=>p.x!==null&&p.y!==null&&Math.abs(p.y-p.supportY)<=1))return{state,visible:0};
   const context=canvas.getContext('2d')!,image=context.getImageData(0,0,canvas.width,canvas.height),scale=canvas.width/canvas.getBoundingClientRect().width;
-  return points.filter(p=>{for(let x=Math.max(0,Math.floor((p.x-4)*scale));x<Math.min(canvas.width,(p.x+4)*scale);x++)for(let y=Math.max(0,Math.floor((p.y-4)*scale));y<Math.min(canvas.height,(p.y+4)*scale);y++){const i=(y*canvas.width+x)*4;if(image.data[i]>245&&image.data[i+1]>245&&image.data[i+2]>245&&image.data[i+3]>200)return true;}return false;}).length;
- },state.actualCoordinates);
- expect(visible).toBeGreaterThan(0);return state;
+  const visible=points.filter((p:any)=>{for(let x=Math.max(0,Math.floor((p.x-4)*scale));x<Math.min(canvas.width,(p.x+4)*scale);x++)for(let y=Math.max(0,Math.floor((p.y-4)*scale));y<Math.min(canvas.height,(p.y+4)*scale);y++){const i=(y*canvas.width+x)*4;if(image.data[i]>245&&image.data[i+1]>245&&image.data[i+2]>245&&image.data[i+3]>200)return true;}return false;}).length;
+  return{state,visible};
+ });state=result.state;return result.visible;
+ }).toBeGreaterThan(0);return state;
 }
 
 test('SYNTHETIC归档实际叠加与6h成熟核对，预测hash和24h概率不变',async({page,request},info)=>{
@@ -85,6 +89,7 @@ test('SYNTHETIC缺口停止实际线、部分指标保留且不计算Brier',asyn
  const state=await actualAligned(page);expect(state.actualCount).toBe(4);expect(state.actualPoints.at(-1).time).toBe(run.forecast.anchor_time+4*900);
  for(const checkbox of await page.locator('#legend input').all())await checkbox.uncheck();
  await page.evaluate(({from,to})=>(window as any).chartTest.setRange(from,to),{from:run.forecast.anchor_time,to:run.forecast.anchor_time+21600});
+ await expect.poll(async()=>(await snapshot(page)).visibleTime).toEqual({from:run.forecast.anchor_time,to:run.forecast.anchor_time+21600});
  await actualAligned(page);expect((await snapshot(page)).visiblePaths).toEqual([]);expect((await snapshot(page)).actualCount).toBe(4);
  await page.locator('[data-window="h6"] summary').click();await expect(page.getByRole('table',{name:'6h 路径误差'}).locator('tbody tr')).toHaveCount(7);
  await expect(page.locator('[data-window="h24"] .evaluation-brier')).toContainText('尚不可评价');await evidence(page,'synthetic-gap',info.project.name,'synthetic');

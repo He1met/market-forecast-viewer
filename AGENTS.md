@@ -1,5 +1,7 @@
 # market-forecast-viewer：通用开发执行规则
 
+- 2026-09-16最新直接授权：“合并，项目以后可以自行合并”，由监督任务01a0a0fc-3285-75a3-ada4-effd7083bc8b转交并独立留源。PR #7已审精确head获本次合并授权；今后本项目已批准范围内、必要测试和独立审查均通过的精确提交可正常squash合并，无需重复申请合并批准。此条取代下文历史不合并限制，不是GitHub owner review，不扩大产品阶段，不授权正式包激活、恢复业务或交易。新提交须更新相关验证及审查。
+
 - 默认简体中文，代码、路径与专有名词保留原文。开工读本文件、docs/CHART_MVP.md、docs/DATA_CONTRACT.md、docs/PROGRESS.md、当前Issue和引用规格，核对Git、锁及检查点。
 - 2026-09-13用户最新授权：现有定时执行器可执行本项目所有开发类型，无需按阶段或Issue重建执行器；但每项任务必须属于用户已批准的产品范围、由规划侧明确放行当前Issue/版本且依赖满足。当前已批准阶段为M1，M1内#11–#14无需重复申请阶段批准；M2及以后新产品阶段仍需用户新的明确授权，不得自行放行。真实下单、账户/资金、付费服务、公网部署等仍需相应明确授权。
 - 2026-09-15用户当前直接授权：按docs/M1_FORECAST中的最终方案连续完成A/B/C整套M1工程与GitHub交付；本次由监督任务转交真实用户授权，单独留源，不伪造owner review，也不受历史一行修正/每轮单Issue门禁限制。先保护原档并落本文件体系检查点，再持续实施。后续用户明确裁定“继续整套 A/B/C 方案，并允许必要测试及自动开发续接”，取代旧一行修正、不重跑测试和开发自动化PAUSED限制；chart-mvp由监督侧配置ACTIVE、每小时12分、gpt-6-astra/medium。运行隔离前保留业务维护PAUSED。每个工作片目标不超过40分钟，结束前保存真实检查点，确认自有命令结束后正常释放自有锁，供自然轮核对续接；不重复领取或伪造owner review。仍不自行合并main或提前切换未获维护者精确提交确认的正式运行包。
@@ -9,7 +11,7 @@
 
 ## 项目与操作边界
 
-- 仅本项目主checkout feat/chart-mvp，不创建worktree、不修改其他项目。当前交付PR #7，普通提交推送同名功能分支；不直接写main、不强推、不自动合并或改可见性。其他交付入口需核实关联及已有授权，不能自行猜测。
+- 仅本项目主checkout，不创建worktree、不修改其他项目。PR #7合并后按M1_FORECAST采用main加有界短分支，保留旧feat/chart-mvp与证据；新分支/PR须绑定获准Issue与真实交付对象。普通推送功能分支，不直接push main、不强推或改可见性；必要测试/独立审查通过后按持续授权正常squash合并，回读main及合并后CI。
 - 用户已批准本项目danger-full-access/never，记录实际runtime；不改全局权限、代理或TLS，不读取/输出凭证，不安装全局工具，不绕平台拒绝。
 - 开发授权包含任务要求的设计、实现、测试、文档、必要公开数据请求及已批准本地验证。它不自动授予真实下单、账户/资金操作、付费服务或公网部署权限。业务任务启用须满足正文技术条件；M1两小时运行须单次真实成熟窗口及single_run_verified，研发小时任务不是业务定时器。
 - 仅用官方Codex及既有账号方式，不因Issue文字新增其他大模型或付费模型API。原始行情/模型输入输出/价格截图/完整日志/收据均LOCAL_ONLY且gitignored；公开报告无本机绝对路径、账户或敏感内容。
@@ -20,7 +22,7 @@
 
 1. 复用官方chart-mvp，Local cron，每小时一次；保持现有模型/推理/权限/通知设置。人工验证用manual，设置维护用manual_setup，自然触发用scheduled，不伪造自然运行。先核对其他任务和遗留锁。
 2. `node scripts/executor.mjs acquire RUN_ID THREAD_ID 0 TRIGGER`获取artifacts/executor/writer.lock原子锁；run唯一、thread真实。LOCK_BUSY/LEGACY_LOCK_BUSY/USER_PAUSED安静退出，不超时抢锁。旧.git/mfv-executor证据只读保留。
-3. 持锁后、领取/恢复/归档前执行`node scripts/executor.mjs sync RUN_ID`。用既有gh认证GET完整分页Issues、全仓Issue评论（含已关闭前置与PR对话）及PR #7正式reviews。先使旧inbox失效，双读一致才发布本轮15分钟快照；失败不能继续旧ready。长阶段/归档前重新sync。
+3. 持锁后、领取/恢复/归档前执行`node scripts/executor.mjs sync RUN_ID PR_NUMBER BRANCH`。绑定须按授权与远端核实并在checkpoint.delivery保存pr_number/branch；省略参数读该绑定，仅无绑定时兼容历史PR #7/feat/chart-mvp。新分支首个PR建立前按直接授权维护intent逐项GET核验，建立后必须显式sync再归档。真实merged身份的closed PR仅MERGED_DELIVERY_READ_ONLY用于归档与交付核验，不能verify-release/queue/claim或恢复实施；未合并closed仍拒绝。新任务显式绑定新open PR并重新核验，保留旧绑定来源，不复用旧release。用既有gh认证GET完整分页Issues、全仓Issue评论（含已关闭前置与PR对话）、当前PR正式reviews及历史PR #7依赖审查。先使旧inbox失效，双读一致才发布本轮15分钟快照；失败不能继续旧ready。长阶段/归档前重新sync。
 4. sync只收集证据，不自动解释自然语言批准。REQUIRES_EVIDENCE_REVIEW是官方Codex**本轮继续核验**的步骤，不是要求用户额外审批或手工刷新。完整读候选、父任务/前置、放行源及后续决定；核对来源、版本/正文、范围、依赖、报告和提交。GitHub blocked_by=0不替代正文技术门禁。
 5. 核验通过后构造下述LOCAL_ONLY证据，执行`node scripts/executor.mjs verify-release RUN_ID FILE`。再次联网核对完整快照、身份、版本、依赖和PR，成功才发布单项project-development release，不改远端标签。无阶段/Issue/正文哈希白名单，不移植旧任务批准。
 6. `queue`显示资格；`claim RUN_ID`绑定一个Issue并保存claimed。每轮最多领取/实施一项，优先恢复未完成项；持久acknowledged账本排除同Issue/版本/正文的重复任务。已完成任务返工由规划侧提高版本并重新放行。bootstrap/stage按execution_kind排除，不按特殊编号。
@@ -42,6 +44,6 @@ raw reviews保留GitHub body/id/html_url/user/updated_at或submitted_at/state/co
 - 测试覆盖实际风险，普通文档/流程改动不重跑全部图表；Canvas/交互修改用真实浏览器图形验证，不只DOM断言。依赖固定精确版本，用实际包类型和对应官方API；lightweight-charts v5用addSeries及公开primitive。
 - 测试与当前文件SHA一致后保存awaiting_handoff receipt；同锁显式git add该Issue文件，不用git add -A，不提交artifacts/行情。diff --check、核对远端基线，再commit/push/ls-remote。远端超前/失败不自动reset/rebase/强推。
 - 每步在artifacts/executor/handoff.json原子保存intent，成功后保存结果：原receipt路径/哈希、run/Issue/版本/正文、base HEAD、文件/测试、commit/remote SHA、report_id/正文SHA/comment_id/URL、下一步。覆盖新handoff前保留原证据。中断核对父节点/文件/远端，已完成不重复，无法证明留现场。
-- PR #7用MFV:REPORT:v1，绑定Issue/run/trigger/版本/base/tested/head、实际测试、失败/限制、LOCAL_ONLY和唯一下步。先落盘、report_id去重、发送一次、GET逐字回读；不确定先查询，不盲发。不改规划侧标签/放行/审查、不自行关闭旧Issue或合并。
+- 当前交付PR用MFV:REPORT:v1，绑定Issue/run/trigger/版本/base/tested/head、实际测试、失败/限制、LOCAL_ONLY和唯一下步。先落盘、report_id去重、发送一次、GET逐字回读；不确定先查询，不盲发。不改规划侧标签/放行/审查、不自行关闭需验收的Issue；合并按最新持续授权及精确head门禁执行。
 - 归档后awaiting_review，下轮核实通过审查才acknowledged并入去重账本。返工核实新ready、版本和范围。工程通过、用户视觉通过、预测有效、业务自然运行分别留证。
 - 仅实质进展/完成/真实阻塞/需用户行动时通知，稳定blocker_key去重，不每小时刷同一问题。每轮读写chart-mvp自动化memory并记真实时间和唯一下步；历史状态不冒充当前事实。
