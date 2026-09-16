@@ -1,0 +1,56 @@
+{
+  "name": "market-forecast-viewer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "data:download": "tsx scripts/download-history.mjs",
+    "demo:generate": "node scripts/verify.mjs demo",
+    "data:validate": "tsx scripts/validate-data.mjs",
+    "test": "node scripts/verify.mjs unit",
+    "test:m1": "node scripts/verify.mjs m1",
+    "typecheck": "tsc --noEmit",
+    "dev": "vite --host 127.0.0.1 --port 5173 --strictPort",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host 127.0.0.1 --port 4173 --strictPort",
+    "test:e2e": "node scripts/verify.mjs browser",
+    "test:display": "node scripts/verify.mjs display",
+    "test:evaluation": "node scripts/verify.mjs evaluation",
+    "m1:runtime": "node --import tsx scripts/m1-runtime.mjs",
+    "test:runtime": "node scripts/verify.mjs runtime",
+    "m1:verify": "node scripts/verify.mjs all",
+    "test:quality": "node scripts/verify.mjs quality",
+    "verify:bfcache": "node scripts/verify.mjs bfcache",
+    "verify:servers": "node scripts/verify.mjs servers",
+    "record:stage": "node scripts/verify.mjs record-stage",
+    "test:package": "node scripts/verify.mjs package",
+    "m1:run": "node scripts/m1-installed.mjs forecast",
+    "m1:ops": "node scripts/m1-installed.mjs ops",
+    "m1:backup": "node scripts/m1-installed.mjs backup",
+    "m1:doctor": "node scripts/m1-installed.mjs doctor",
+    "m1:pause": "node scripts/m1-installed.mjs pause",
+    "m1:resume": "node scripts/m1-installed.mjs resume",
+    "m1:release": "node scripts/m1-release.mjs",
+    "m1:learning": "node scripts/m1-installed.mjs learning",
+    "m1:rollback": "node scripts/m1-rollback.mjs",
+    "m1:deploy": "node scripts/m1-deploy.mjs",
+    "m1:recover-installation": "node scripts/m1-recover-installation.mjs"
+  },
+  "dependencies": {
+    "fancy-canvas": "2.1.0",
+    "lightweight-charts": "5.2.1",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0",
+    "@types/node": "22.19.15",
+    "es-module-lexer": "2.3.2",
+    "tsx": "4.23.13",
+    "typescript": "7.0.2",
+    "vite": "8.3.0",
+    "vitest": "5.0.0"
+  }
+}

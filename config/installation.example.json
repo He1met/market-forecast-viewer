@@ -1,0 +1,19 @@
+{
+  "schema": "MFV:INSTALLATION:v1",
+  "runtime_home": "/absolute/local/mfv-runtime",
+  "data_root": "/absolute/project/artifacts",
+  "http_port": 5178,
+  "mutex_port": 5179,
+  "timezone": "Asia/Shanghai",
+  "backup": {
+    "target": "/absolute/local/mfv-backup",
+    "type": "local-recovery",
+    "device_id": null,
+    "minimum_free_bytes": 1073741824
+  },
+  "development_paused": false,
+  "production_paused": true,
+  "forecast_paused": true,
+  "ops_paused": true,
+  "service_paused": true
+}

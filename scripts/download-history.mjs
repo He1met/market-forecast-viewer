@@ -1,0 +1,16 @@
+import {mkdir,writeFile} from 'node:fs/promises';import{execFile}from'node:child_process';import{promisify}from'node:util';
+import {seal,validateHistory,sha256,check,parseStrict} from '../src/contracts.ts';import{exists,writeJson,normalizeRows,verifySource}from'./data-utils.mjs';
+const run=promisify(execFile);const endpoint='https://www.okx.com/api/v5/market/history-candles';const capture=new Date().toISOString().replace(/[:.]/g,'-');const folder=`artifacts/data-source/${capture}`;await mkdir(folder,{recursive:true});
+let published=false;
+try{
+ check(!await exists('public/data/history.json'),'已有历史快照，拒绝重复下载或覆盖。请先备份并明确移走旧快照。');
+ const receipts=[],rows=[];let end,after;
+ for(let page=1;page<=12;page++){
+ const params={instId:'BTC-USDT-SWAP',bar:'15m',limit:300,...after?{after}:{}};const url=endpoint+'?'+new URLSearchParams(params);const path=`${folder}/page-${String(page).padStart(3,'0')}.json`;const requested_at=new Date().toISOString();
+ // curl uses the existing local network configuration; TLS verification stays enabled.
+ const {stdout}=await run('curl',['--fail-with-body','--silent','--show-error','--max-time','30','--retry','1','--retry-delay','1','--retry-max-time','65','--output',path,'--write-out','%{http_code}',url],{timeout:70000});
+ check(stdout.trim()==='200',`OKX HTTP ${stdout}`);const bytes=await (await import('node:fs/promises')).readFile(path);const body=parseStrict(bytes.toString('utf8'));check(body.code==='0'&&Array.isArray(body.data)&&body.data.length>0,`OKX错误或空页：${body.code} ${body.msg??''}`);rows.push(...body.data);receipts.push({path,sha256:await sha256(bytes),requested_at,params,response_code:body.code});const normalized=normalizeRows(rows,end);end=normalized.end;console.log(JSON.stringify({page,complete_in_window:normalized.candles.length,end_time:end}));
+ if(normalized.candles.length===1344)break;const oldest=Math.min(...body.data.map(r=>Number(r[0])));check(!after||oldest<Number(after),'OKX分页游标未前进');after=String(oldest);await new Promise(r=>setTimeout(r,150));
+ }
+ const n=normalizeRows(rows,end);const h=await seal({schema_version:'1.0.0',kind:'history',source:{provider:'OKX',endpoint,documentation_url:'https://app.okx.com/docs-v5/en/#rest-api-market-data-get-candlesticks-history',request:{instId:'BTC-USDT-SWAP',bar:'15m',limit:300,requested_start_time:end-14*86400,requested_end_time:end},raw_responses:receipts},instrument:'BTC-USDT-SWAP',market_type:'linear_perpetual',price_type:'trade',base_currency:'BTC',quote_currency:'USDT',settle_currency:'USDT',time_unit:'s',timezone:'UTC',bar_seconds:900,downloaded_at:new Date().toISOString(),start_time:end-14*86400,end_time:end,count:n.candles.length,quality:n.quality,candles:n.candles});await validateHistory(h);await verifySource(h);await writeJson('public/data/history.json',h);published=true;await writeJson('artifacts/c1/download.json',{result:'PASS',dataset_id:h.dataset_id,start_time:h.start_time,end_time:h.end_time,count:h.count,downloaded_at:h.downloaded_at,lag_seconds:Date.parse(h.downloaded_at)/1000-h.end_time,source_receipts:receipts.length});console.log('真实历史已验证并保存：'+h.dataset_id);
+}catch(e){await writeJson(`${folder}/failure.json`,{result:'FAIL',at:new Date().toISOString(),error:e.message});console.error((published?'快照已发布，但下载收据写入失败：':'真实下载失败，未发布快照：')+e.message);process.exitCode=1;}

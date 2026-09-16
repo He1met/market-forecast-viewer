@@ -1,0 +1,3 @@
+import{requireEvidence}from'./evidence-context.mjs';requireEvidence();
+import{mkdtemp,mkdir,writeFile}from'node:fs/promises';import{join}from'node:path';import{validateHistory}from'../src/contracts.ts';import{readJson}from'./data-utils.mjs';import{generateDemo}from'./demo-core.mjs';
+await mkdir('artifacts/demo-attempts',{recursive:true});const dir=await mkdtemp('artifacts/demo-attempts/run-');const h=await validateHistory(await readJson('public/data/history.json'));const x=await generateDemo(h);for(const[n,v]of [['forecast.demo.json',x.forecast],['grids.demo.json',x.grids]])await writeFile(join(dir,n),JSON.stringify(v,null,2)+'\n',{flag:'wx'});console.log(JSON.stringify({status:'GENERATED_TEMP_ONLY',directory:dir}));
