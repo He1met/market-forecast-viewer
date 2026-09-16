@@ -1,3 +1,4 @@
+import {serviceAlertCondition} from './m1-service.mjs';
 import {observeCapacity} from './m1-capacity.mjs';
 import {collectExecutionObservations} from './m1-observation-alerts.mjs';
 import {publicationHealth,observePublicationHealth} from './m1-publication-health.mjs';
@@ -49,11 +50,12 @@ export async function scoreOldForecasts({codeRoot,dataRoot,mutex,signal,deadline
  }});
  return{status:batch.unresolved.length||batch.visited<ids.length?'partial':'completed',...batch};
 }
-export async function ops({codeRoot,dataRoot,port,releaseId,policy,trigger='manual',taskId=null,threadId=null,paused=false,forecastPaused=true,expectedSince=null,readForecastControl=async()=>({paused:forecastPaused,expectedSince}),capacityPolicy,capacityStatfs,outcomeTransport,refreshInputs=async()=>{}}){
+export async function ops({codeRoot,dataRoot,port,releaseId,policy,trigger='manual',taskId=null,threadId=null,paused=false,forecastPaused=true,expectedSince=null,readForecastControl=async()=>({paused:forecastPaused,expectedSince}),capacityPolicy,capacityStatfs,outcomeTransport,inspectService,refreshInputs=async()=>{}}){
  check(['manual','scheduled'].includes(trigger),'TRIGGER_INVALID');for(const value of [taskId,threadId])check(value===null||(typeof value==='string'&&value.length>0&&value.length<=200),'INVOCATION_ID_INVALID');
  const slotHour=new Date().toISOString().slice(0,13),slotFile=path.join(dataRoot,'m1-control/ops-slots',slotHour.replace(/[^0-9]/g,'')+'.json');
- const start=performance.now(),id=randomUUID(),folder=path.join(dataRoot,'m1-observations',id),observation={schema:'MFV:OBSERVATION:v1',id,task:'ops',trigger,task_id:taskId,thread_id:threadId,status:'started',release_id:releaseId,started_at:new Date().toISOString()};await writeOnce(dataRoot,path.join(folder,'started.json'),observation);let mutex,result={status:'failed',reason:'incomplete'};
+ const start=performance.now(),id=randomUUID(),folder=path.join(dataRoot,'m1-observations',id),observation={schema:'MFV:OBSERVATION:v1',id,task:'ops',trigger,task_id:taskId,thread_id:threadId,status:'started',release_id:releaseId,started_at:new Date().toISOString()};await writeOnce(dataRoot,path.join(folder,'started.json'),observation);let mutex,service,result={status:'failed',reason:'incomplete'};
  try{if(paused){result={status:'skipped',reason:'paused'};return result;}mutex=await businessMutex({dataRoot,port,releaseId,task:'ops'});if(mutex.status!=='ACQUIRED'){result={status:'skipped',reason:mutex.status};return result;}
+  if(inspectService){await mutex.guard();try{service=await inspectService();check(service&&typeof service.status==='string','SERVICE_RESULT_INVALID');}catch(e){service={status:'inspection_failed',reason:e.message};}}
   if(await exists(slotFile)&&(await readJson(dataRoot,slotFile)).status==='completed'){result={status:'skipped',reason:'slot_completed'};return result;}
   await atomic(dataRoot,slotFile,{schema:'MFV:OPS_SLOT:v1',slot_hour:slotHour,status:'running',observation_id:id,started_at:observation.started_at});
   const guard=async()=>{await mutex.guard();check(performance.now()-start<120000,'OPS_WRITE_DEADLINE');};
@@ -99,10 +101,18 @@ export async function ops({codeRoot,dataRoot,port,releaseId,policy,trigger='manu
   const projection=await projectionStore(dataRoot).update(readers.production,{limit:16,guard,deadline:start+120000});const incomplete=unresolved.length>0||executionObservations.status!=='completed';result={status:incomplete?'partial':'completed',...(incomplete?{reason:unresolved.length?'outcome_incomplete':'observation_collection_incomplete'}:{}),outcomes,unresolved,projection,decision,execution_observations:executionObservations,capacity};return result;
  }catch(e){result={status:'failed',reason:e.message};return result;}finally{
   try{
+   const dataStatus=result.status;
+   if(service){
+    result.service=service;
+    if(!['healthy','paused'].includes(service.status))Object.assign(result,{primary_status:result.status,status:result.status==='failed'?'failed':'partial',reason:result.reason&&result.reason!=='slot_completed'?result.reason:'service_unavailable'});
+    try{const alerts=await alertStore(dataRoot,{stream:'service'}).observe({task:'ops',observationId:id,at:new Date().toISOString(),condition:serviceAlertCondition(service),paused:service.status==='paused',guard:mutex.guard});result.service_alerts={delivery:alerts.pending.length?'pending':'none',event_ids:alerts.pending.map(x=>x.id)};}
+    catch(e){Object.assign(result,{status:'partial',service_alert_error:e.message,reason:result.reason??'service_alert_record_failed'});}
+   }
    if(mutex?.status==='ACQUIRED'&&result.status!=='skipped'){
-    try{result.publication_health=await publicationHealth({reader:createDisplayReader({root:codeRoot,dataRoot}),...await readForecastControl()});await observePublicationHealth(alertStore(dataRoot),result.publication_health,{observationId:id,guard:mutex.guard});const alerts=await alertStore(dataRoot).observe({task:'ops',observationId:id,at:new Date().toISOString(),condition:opsAlertCondition(result),guard:mutex.guard});const pending=[...alerts.pending,...await alertStore(dataRoot,{stream:'execution'}).pending(),...await alertStore(dataRoot,{stream:'capacity'}).pending()];result.alerts={delivery:pending.length?'pending':'none',event_ids:pending.map(x=>x.id)};}
+    try{result.publication_health=await publicationHealth({reader:createDisplayReader({root:codeRoot,dataRoot}),...await readForecastControl()});await observePublicationHealth(alertStore(dataRoot),result.publication_health,{observationId:id,guard:mutex.guard});const alerts=await alertStore(dataRoot).observe({task:'ops',observationId:id,at:new Date().toISOString(),condition:opsAlertCondition(result.reason==='service_unavailable'?{status:'completed'}:result),guard:mutex.guard});const pending=[...alerts.pending,...await alertStore(dataRoot,{stream:'execution'}).pending(),...await alertStore(dataRoot,{stream:'capacity'}).pending(),...await alertStore(dataRoot,{stream:'service'}).pending()];result.alerts={delivery:pending.length?'pending':'none',event_ids:pending.map(x=>x.id)};}
     catch(e){Object.assign(result,{primary_status:result.status,status:'partial',alert_error:e.message,reason:result.reason??'alert_record_failed'});}
-    await mutex.guard();await atomic(dataRoot,slotFile,{schema:'MFV:OPS_SLOT:v1',slot_hour:slotHour,status:result.status,observation_id:id,completed_at:new Date().toISOString()});
+    // Service health must not reopen completed data work or rewrite a skipped slot.
+    if(dataStatus!=='skipped'){await mutex.guard();await atomic(dataRoot,slotFile,{schema:'MFV:OPS_SLOT:v1',slot_hour:slotHour,status:result.alert_error?result.status:dataStatus,observation_id:id,completed_at:new Date().toISOString()});}
    }
    const final={...observation,...result,lock_acquired:mutex?.status==='ACQUIRED',completed_at:new Date().toISOString(),elapsed_ms:performance.now()-start};
    await writeOnce(dataRoot,path.join(folder,'result.json'),final);

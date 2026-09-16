@@ -274,9 +274,9 @@ const notifications=execFileSync(process.execPath,['--import','tsx','--input-typ
 import assert from 'node:assert/strict';import fs from 'node:fs/promises';import path from 'node:path';
 import {alertStore} from './scripts/m1-alerts.mjs';import {notificationSummary} from './scripts/m1-notifications.mjs';
 const data=process.env.MFV_DATA_ROOT;await fs.mkdir(data,{recursive:true});
-for(const stream of ['default','execution','capacity'])await alertStore(data,{stream}).observe({task:'ops',observationId:'SYNTHETIC_'+stream,at:'2026-09-15T00:00:00Z',condition:{code:'STORAGE_UNWRITABLE',object:'inspection',severity:'critical'},guard:async()=>{}});
+for(const stream of ['default','execution','capacity','service'])await alertStore(data,{stream}).observe({task:'ops',observationId:'SYNTHETIC_'+stream,at:'2026-09-15T00:00:00Z',condition:{code:'STORAGE_UNWRITABLE',object:'inspection',severity:'critical'},guard:async()=>{}});
 const names=await fs.readdir(path.join(data,'m1-control'));const before=await Promise.all(names.map(n=>fs.readFile(path.join(data,'m1-control',n))));
-const first=await notificationSummary(data);assert.equal(first.pending_count,3);assert.equal(first.transport,'not_configured');assert.equal(first.delivery,'pending');assert.equal((await notificationSummary(data)).event_set_id,first.event_set_id);
+const first=await notificationSummary(data);assert.equal(first.pending_count,4);assert.equal(first.transport,'not_configured');assert.equal(first.delivery,'pending');assert.equal((await notificationSummary(data)).event_set_id,first.event_set_id);
 assert.deepEqual(await Promise.all(names.map(n=>fs.readFile(path.join(data,'m1-control',n)))),before);
 console.log(JSON.stringify({status:'passed',installed_notification_projection:true,outbox_unchanged:true,transport_configured:false,delivery_verified:false}));
 `],{cwd:target,encoding:'utf8',env:{...process.env,NODE_PATH:'',MFV_RUNTIME_HOME:e.evidence_root,MFV_DATA_ROOT:path.join(e.evidence_root,'synthetic-notifications')},timeout:30000});
@@ -324,3 +324,17 @@ const released=await businessMutex({dataRoot:data,port,releaseId:'SYNTHETIC_AFTE
 console.log(JSON.stringify({status:'passed',installed_forecast_fallback:true,failed_capture_preserved:true,mature_no_redownload:true,shared_mutex:true,ops_case_failure_preserved:true,budget_checked:true,original_manifest_unchanged:true,model_calls:0,market_requests:0,activated_entry_verified:false}));
 `],{cwd:target,encoding:'utf8',env:{...process.env,NODE_PATH:'',MFV_RUNTIME_HOME:e.evidence_root,MFV_DATA_ROOT:dataRoot,SYNTHETIC_FALLBACK_ROOT:path.join(e.evidence_root,'synthetic-fallback')},timeout:60000});
 console.log(fallback.trim());
+
+// Sealed ops/service composition: a real unknown listener is never controlled.
+console.log(execFileSync(process.execPath,['--import','tsx','--input-type=module','-e',`
+import assert from 'node:assert/strict';import fs from 'node:fs/promises';import path from 'node:path';import net from 'node:net';
+import {ops} from './scripts/m1-ops.mjs';import {inspectService} from './scripts/m1-service.mjs';import {notificationSummary} from './scripts/m1-notifications.mjs';
+const data=process.env.MFV_DATA_ROOT;await fs.mkdir(data,{recursive:true});const home=path.join(data,'runtime');await fs.mkdir(home);
+const server=net.createServer(s=>s.end());await new Promise(r=>server.listen(0,'127.0.0.1',r));
+const probe=net.createServer();await new Promise(r=>probe.listen(0,'127.0.0.1',r));const port=probe.address().port;await new Promise(r=>probe.close(r));
+try{const options={codeRoot:process.cwd(),dataRoot:data,port,releaseId:'SYNTHETIC',inspectService:()=>inspectService({runtimeHome:home,port:server.address().port,releaseId:'SYNTHETIC',paused:false})};
+const result=await ops(options);assert.equal(result.status,'partial');assert.equal(result.service.status,'unknown_listener');
+await ops(options);const summary=await notificationSummary(data);assert.equal(summary.events.filter(x=>x.stream==='service').length,1);assert.equal(summary.events.find(x=>x.stream==='service').code,'SERVICE_UNKNOWN_LISTENER');assert.equal(server.listening,true);assert.equal(await fs.stat(path.join(home,'service/restarts.json')).catch(()=>null),null);
+console.log(JSON.stringify({status:'passed',service_alert_integration:true,unknown_listener_preserved:true,delivery_verified:false}));
+}finally{await new Promise(r=>server.close(r));}
+`],{cwd:target,encoding:'utf8',env:{...process.env,NODE_PATH:'',MFV_DATA_ROOT:path.join(e.evidence_root,'synthetic-service-alert')},timeout:30000}).trim());

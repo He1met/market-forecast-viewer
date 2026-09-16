@@ -7,7 +7,7 @@ import {readJson,exists,check,canonical,digest} from './m1-files.mjs';
 export async function notificationSummary(dataRoot,{limit=20}={}) {
  check(Number.isSafeInteger(limit)&&limit>=1&&limit<=100,'NOTIFICATION_LIMIT_INVALID');
  const events=[];
- for(const stream of ['default','execution','capacity']) {
+ for(const stream of ['default','execution','capacity','service']) {
   for(const event of await alertStore(dataRoot,{stream}).pending()) {
    check(event.schema==='MFV:ALERT_EVENT:v1'&&/^[a-f0-9]{64}$/.test(event.id)&&
     ['forecast','ops','backup'].includes(event.task)&&['fault','reminder','recovery'].includes(event.kind)&&

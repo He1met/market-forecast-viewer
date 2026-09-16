@@ -45,3 +45,21 @@ async function control(runtimeHome,action){
 }
 export const startService=options=>control(options.runtimeHome,()=>startUnlocked(options));
 export const stopService=options=>control(options.runtimeHome,()=>stopUnlocked(options));
+
+// Called by ops only after acquiring the business mutex. Never restart an
+// unverified listener or a live but unhealthy process.
+export async function inspectService(options){
+ if(options.paused)return{status:'paused'};
+ try{
+  const before=await serviceStatus(options);
+  if(before.status==='healthy'&&before.owner.release_id!==options.releaseId)return{...before,status:'release_mismatch'};
+  if(before.status!=='exited')return before;
+  const restart=await startService({...options,paused:false,automatic:true});
+  return{...restart,before_status:before.status,restart_attempted:true};
+ }catch(error){return{status:'inspection_failed',reason:error.message};}
+}
+export function serviceAlertCondition(result){
+ if(['healthy','paused'].includes(result.status))return null;
+ const critical=['unknown_listener','identity_conflict','listener_unverified','release_mismatch'].includes(result.status)||/(?:INTEGRITY|HASH_MISMATCH|TAMPER|SYMLINK|PATH_ESCAPE|EACCES|EPERM|ENOSPC|EROFS|EIO)/.test(result.reason??'');
+ return{code:'SERVICE_'+result.status.toUpperCase(),object:'display',severity:critical?'critical':'warning'};
+}
