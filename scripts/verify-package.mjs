@@ -1,9 +1,22 @@
 import {buildPackage} from './m1-package-build.mjs';
 import fs from'node:fs/promises';import path from'node:path';import assert from'node:assert/strict';import{execFileSync}from'node:child_process';import{requireEvidence}from'./evidence-context.mjs';import{verifyPackage}from'./m1-package.mjs';import{stageRelease,activate}from'./m1-admin.mjs';
+import {verifyTargetArchives,archiveSnapshot} from './m1-compatibility.mjs';
 const e=requireEvidence(),target=path.join(e.evidence_root,'runtime-package');
 const releaseResult=JSON.parse(execFileSync(process.execPath,['scripts/m1-release.mjs','--commit',execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),'--destination',target],{encoding:'utf8'}));
 assert.equal(releaseResult.synthetic,true);assert.equal(releaseResult.activated,false);assert.equal(releaseResult.maintainer_approval,false);const manifest=await verifyPackage(target);assert.equal(releaseResult.release_id,manifest.release_id);
 const syntheticHome=path.join(e.evidence_root,'synthetic-install');await stageRelease({packageRoot:target,runtimeHome:syntheticHome});await assert.rejects(()=>activate({runtimeHome:syntheticHome,releaseId:manifest.release_id,approval:{},config:{}}),/SYNTHETIC_PACKAGE_CANNOT_ACTIVATE/);
+// Replay every historical revision with the sealed target's own readers.
+const compatData=path.join(e.evidence_root,'compatibility-data');await fs.cp('artifacts',compatData,{recursive:true});
+const compatBefore=await archiveSnapshot(compatData);
+const compatible=await verifyTargetArchives({packageRoot:target,dataRoot:compatData,releaseId:manifest.release_id});
+assert.equal(compatible.status,'compatible');assert.ok(compatible.runs>0);assert.ok(compatible.revisions>0);assert.ok(compatible.failed_runs>0);
+await assert.rejects(()=>verifyTargetArchives({packageRoot:target,dataRoot:compatData,releaseId:'0'.repeat(64)}),/COMPATIBILITY_TARGET_MISMATCH/);
+const outcomeIds=await fs.readdir(path.join(compatData,'m1-outcomes')),revDir=path.join(compatData,'m1-outcomes',outcomeIds[0],'evaluations'),rev=(await fs.readdir(revDir))[0];
+const revisionFile=path.join(revDir,rev,'result.json'),originalRevision=await fs.readFile(revisionFile);
+await fs.writeFile(revisionFile,'{}');await assert.rejects(()=>verifyTargetArchives({packageRoot:target,dataRoot:compatData,releaseId:manifest.release_id}));assert.equal(await fs.readFile(revisionFile,'utf8'),'{}');await fs.writeFile(revisionFile,originalRevision);
+const unknown=path.join(compatData,'m1-outcomes','UNKNOWN');await fs.mkdir(unknown);await assert.rejects(()=>verifyTargetArchives({packageRoot:target,dataRoot:compatData,releaseId:manifest.release_id}));await fs.rmdir(unknown);
+assert.deepEqual(await archiveSnapshot(compatData),compatBefore);
+console.log(JSON.stringify({compatibility:'passed',exact_target:true,all_revisions:true,corruption_rejected:true,orphan_rejected:true,archive_unchanged:true,activation_tested:false}));
 assert.equal(manifest.dependencies.tsx,JSON.parse(await fs.readFile('package-lock.json')).packages['node_modules/tsx'].version);
 const result=execFileSync(process.execPath,['--import','tsx','--input-type=module','-e',"import{verifyPackage}from'./scripts/m1-package.mjs';console.log((await verifyPackage(process.cwd())).release_id)"],{cwd:target,encoding:'utf8',env:{...process.env,NODE_PATH:'',MFV_RUNTIME_HOME:e.evidence_root}}).trim();assert.equal(result,manifest.release_id);
 const stat=await fs.stat(path.join(target,'node_modules/zod/package.json')),original=await fs.stat('node_modules/zod/package.json');assert.notEqual(stat.ino,original.ino);

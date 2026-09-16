@@ -1,14 +1,20 @@
+import {verifyTargetArchives,archiveSnapshot} from './m1-compatibility.mjs';
 import fs from'node:fs/promises';import path from'node:path';import{randomUUID}from'node:crypto';import{pathToFileURL}from'node:url';import{readJson,writeOnce,atomic,exists,check,safePath,validateInstallation,readBytes}from'./m1-files.mjs';import{verifyPackage}from'./m1-package.mjs';import{businessMutex}from'./m1-mutex.mjs';import{stopService,serviceStatus,startService}from'./m1-service.mjs';
 export async function stageRelease({packageRoot,runtimeHome}){const manifest=await verifyPackage(packageRoot);await fs.mkdir(runtimeHome,{recursive:true,mode:0o700});await safePath(runtimeHome,runtimeHome);const releases=path.join(runtimeHome,'releases');await fs.mkdir(releases,{recursive:true});const target=path.join(releases,manifest.release_id);if(await exists(target)){await verifyPackage(target);return{status:'already_staged',release_id:manifest.release_id};}const temp=path.join(releases,'.staging-'+randomUUID());await fs.cp(packageRoot,temp,{recursive:true,errorOnExist:true,force:false});await verifyPackage(temp);await fs.rename(temp,target);return{status:'staged',release_id:manifest.release_id,activated:false};}
-export async function activate({runtimeHome,releaseId,approval,config}){
+export async function activate({runtimeHome,releaseId,approval,config,expectedCurrent=null}){
  check(/^[a-f0-9]{64}$/.test(releaseId),'RELEASE_ID_INVALID');const manifest=await verifyPackage(path.join(runtimeHome,'releases',releaseId));
  check(manifest.synthetic!==true,'SYNTHETIC_PACKAGE_CANNOT_ACTIVATE');
  check(approval.schema==='MFV:MAINTAINER_APPROVAL:v1'&&approval.release_id===releaseId&&approval.build_sha===manifest.build_sha&&approval.approved===true&&/^https:\/\/github\.com\/He1met\/market-forecast-viewer\/(?:pull|issues)\//.test(approval.source_url)&&Number.isFinite(Date.parse(approval.approved_at)),'EXACT_RELEASE_APPROVAL_REQUIRED');
  const checkFile=path.join(runtimeHome,'.installation-check-'+randomUUID()+'.json');await writeOnce(runtimeHome,checkFile,config);try{await validateInstallation(checkFile);}finally{await fs.unlink(checkFile);}
- check(config.runtime_home===runtimeHome&&config.forecast_paused===true&&config.ops_paused===true,'ACTIVATION_STARTS_PAUSED');
+ check(config.runtime_home===runtimeHome&&config.forecast_paused===true&&config.ops_paused===true&&config.service_paused===true,'ACTIVATION_STARTS_PAUSED');
  const mutex=await businessMutex({dataRoot:config.data_root,port:config.mutex_port,releaseId,task:'admin'});check(mutex.status==='ACQUIRED',mutex.status);try{
  const service=await serviceStatus({runtimeHome,port:config.http_port});check(['not_started','exited'].includes(service.status),'STOP_OWNED_SERVICE_BEFORE_ACTIVATION');
  const previous=await exists(path.join(runtimeHome,'current.json'))?await readJson(runtimeHome,path.join(runtimeHome,'current.json')):null;
+ if(expectedCurrent)check(JSON.stringify(previous)===JSON.stringify(expectedCurrent),'CURRENT_CHANGED_BEFORE_ROLLBACK');
+ if(previous){const installed=await validateInstallation(path.join(runtimeHome,'installation.local.json'));check(installed.data_root===config.data_root&&installed.mutex_port===config.mutex_port,'INSTALLATION_CHANGED');check(installed.forecast_paused===true&&installed.ops_paused===true&&installed.service_paused===true,'PAUSE_BEFORE_ACTIVATION');}
+ const compatibility=await verifyTargetArchives({packageRoot:path.join(runtimeHome,'releases',releaseId),dataRoot:config.data_root,releaseId});
+ await mutex.guard();check((await archiveSnapshot(config.data_root)).sha256===compatibility.archive.sha256,'ARCHIVES_CHANGED_BEFORE_ACTIVATION');
+ await writeOnce(runtimeHome,path.join(runtimeHome,'compatibility',randomUUID()+'.json'),compatibility);
  await writeOnce(runtimeHome,path.join(runtimeHome,'changes',randomUUID()+'.json'),{action:'activate',release_id:releaseId,previous,at:new Date().toISOString()});
  const approvalFile=path.join(runtimeHome,'approvals',releaseId+'.json');if(!await exists(approvalFile))await writeOnce(runtimeHome,approvalFile,approval);else check(JSON.stringify(await readJson(runtimeHome,approvalFile))===JSON.stringify(approval),'APPROVAL_ALREADY_DIFFERS');
  await atomic(runtimeHome,path.join(runtimeHome,'launch.mjs'),await readBytes(runtimeHome,path.join(runtimeHome,'releases',releaseId,'runtime/launch.mjs')));
@@ -49,14 +55,14 @@ export async function disableLearning({runtimeHome,dataRoot,port,releaseId,reaso
   await mutex.guard();await atomic(dataRoot,file,next);return{status:'applied',controls:next};
  }finally{await mutex.close();}
 }
-export async function rollback({runtimeHome}){const current=await readJson(runtimeHome,path.join(runtimeHome,'current.json'));check(current.previous_release_id,'NO_PREVIOUS_RELEASE');const approval=await readJson(runtimeHome,path.join(runtimeHome,'approvals',current.previous_release_id+'.json')),config=await readJson(runtimeHome,path.join(runtimeHome,'installation.local.json'));return activate({runtimeHome,releaseId:current.previous_release_id,approval,config:{...config,forecast_paused:true,ops_paused:true,service_paused:true}});}
+export async function rollback({runtimeHome,releaseId}){const current=await readJson(runtimeHome,path.join(runtimeHome,'current.json'));check(current.previous_release_id,'NO_PREVIOUS_RELEASE');check(/^[a-f0-9]{64}$/.test(releaseId??'')&&releaseId===current.previous_release_id,'EXACT_PREVIOUS_RELEASE_REQUIRED');const approval=await readJson(runtimeHome,path.join(runtimeHome,'approvals',current.previous_release_id+'.json')),config=await readJson(runtimeHome,path.join(runtimeHome,'installation.local.json'));return activate({runtimeHome,releaseId,approval,expectedCurrent:current,config:{...config,forecast_paused:true,ops_paused:true,service_paused:true}});}
 if(import.meta.url===pathToFileURL(process.argv[1]??'').href){
  const command=process.argv[2];let result;
  if(command==='verify')result=await verifyPackage(path.resolve(process.argv[3]));
  else if(command==='stage')result=await stageRelease({packageRoot:path.resolve(process.argv[3]),runtimeHome:path.resolve(process.argv[4])});
  else if(command==='activate'){const runtimeHome=path.resolve(process.argv[3]),approvalPath=path.resolve(process.argv[5]),configPath=path.resolve(process.argv[6]);result=await activate({runtimeHome,releaseId:process.argv[4],approval:await readJson(path.dirname(approvalPath),approvalPath),config:await readJson(path.dirname(configPath),configPath)});}
  else if(command==='learning-disable'){const runtimeHome=path.resolve(process.argv[3]),config=await readJson(runtimeHome,path.join(runtimeHome,'installation.local.json')),current=await readJson(runtimeHome,path.join(runtimeHome,'current.json'));result=await disableLearning({runtimeHome,dataRoot:config.data_root,port:config.mutex_port,releaseId:current.release_id,reason:process.argv[4]});}
- else if(command==='rollback')result=await rollback({runtimeHome:path.resolve(process.argv[3])});
+ else if(command==='rollback')result=await rollback({runtimeHome:path.resolve(process.argv[3]),releaseId:process.argv[4]});
  else if(['service-status','service-start','service-stop'].includes(command)){const runtimeHome=path.resolve(process.argv[3]),config=await readJson(runtimeHome,path.join(runtimeHome,'installation.local.json')),current=await readJson(runtimeHome,path.join(runtimeHome,'current.json'));const options={runtimeHome,port:config.http_port,releaseId:current.release_id,paused:config.service_paused!==false};result=await(command==='service-status'?serviceStatus(options):command==='service-start'?startService(options):stopService(options));}
  else throw Error('ADMIN_COMMAND_INVALID');console.log(JSON.stringify(result));
 }

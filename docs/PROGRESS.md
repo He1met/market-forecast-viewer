@@ -1,5 +1,11 @@
 # 开发进度与证据
 
+## 2026-09-16 回退前目标包兼容门禁
+
+从920f325恢复Issue15；新增公开m1:rollback完整previous release参数校验。激活/回退持业务锁后验证现有安装三项暂停、固定current及数据根/互斥端口，使用精确目标包自己的reader逐项只读回放正式/候选、全部capture/评分revision及案例，档案与包前后完整性一致后才写兼容收据和切换指针。未发布失败记录按目标已知格式保留；未知/未完成/不合格案例保守拒绝；不删除新档、不改评分。超时终止自有只读Node子进程，分段预算不冒充整条维护硬截止。
+
+隔离quality Node211/211、Vitest177/177、typecheck/build及固定包三步首次通过；包内真实目标reader覆盖历史revision、坏revision、孤儿结果、目标身份不符和原档字节保持。合成包继续拒绝正式激活，本片未运行正式安装切换，未宣称端到端部署/服务恢复已验证。监督独立核对8个代码测试文件、两套各8份受测副本、两份completed及656项内部证据，FINAL-05 FIXED_VERIFIED / LOCAL_SLICE_PASSED；未重跑测试。兼容哈希仅覆盖forecast-runs/m1-candidates/m1-outcomes/m1-cases/m1-learning，其他原始来源由目标读取链校验，不代表整个data_root全部字节或完整备份。审查后仅补交接文档，受测代码未变。FINAL-01仍缺deploy与健康检查；其余FINAL-02..04未修。业务PAUSED，完整工程CHANGES_REQUIRED。
+
 ## 2026-09-16 维护入口第一片：候选包与学习禁用
 
 从3969318恢复Issue15；本片补m1:release完整提交/绝对目标/未知重复参数拒绝，验证上下文自动标SYNTHETIC，候选身份不冒充批准。m1:learning disable经固定安装包及业务锁内当前版本重核，保留控制列表、暂停配置和重复禁用的原生效点/首run。包构建在创建目标前拒绝无效提交及符号链接父目录。部署/回退公开入口与FINAL-05兼容门禁继续待修，FINAL-01仅部分实现。隔离quality通过209/209 Node、177/177 Vitest、typecheck/build；固定包三步通过，含公开release入口与包内learning控制。补测试期间误删仍用的buildPackage import导致一次失败，已恢复并保留失败证据；生产代码未因测试放宽。监督独立核对13当前文件SHA、两份completed及628项内部证据和最终包11份非文档副本，本片LOCAL_SLICE_PASSED，FINAL-01保留PARTIAL；未重跑测试，包内learning为合成模块组合而非已激活正式entry。本段仅更新审查状态，受测代码未改；业务PAUSED，完整工程CHANGES_REQUIRED。

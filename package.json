@@ -34,7 +34,8 @@
     "m1:pause": "node scripts/m1-installed.mjs pause",
     "m1:resume": "node scripts/m1-installed.mjs resume",
     "m1:release": "node scripts/m1-release.mjs",
-    "m1:learning": "node scripts/m1-installed.mjs learning"
+    "m1:learning": "node scripts/m1-installed.mjs learning",
+    "m1:rollback": "node scripts/m1-rollback.mjs"
   },
   "dependencies": {
     "fancy-canvas": "2.1.0",

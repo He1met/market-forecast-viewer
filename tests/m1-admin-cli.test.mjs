@@ -37,3 +37,24 @@ test('learning disable preserves first effective run, controls, and pause state;
 test('failed disable intent keeps learning controls unchanged and releases mutex',async t=>{
  const f=await fixture(t),file=path.join(f.data,'m1-learning/controls.json');await atomic(f.data,file,{disabled_scorers:[],revoked_revisions:[]});const before=await fs.readFile(file,'utf8');await fs.writeFile(path.join(f.data,'m1-learning/changes'),'blocked');await assert.rejects(()=>disableLearning(f.options));assert.equal(await fs.readFile(file,'utf8'),before);await fs.unlink(path.join(f.data,'m1-learning/changes'));assert.equal((await disableLearning(f.options)).status,'applied');
 });
+
+test('rollback requires exact previous release and leaves pointers untouched on invalid target',async t=>{
+ const {rollbackArguments}=await import('../scripts/m1-admin-args.mjs');
+ const {rollback}=await import('../scripts/m1-admin.mjs');
+ const f=await fixture(t),file=path.join(f.home,'current.json');
+ await atomic(f.home,file,{release_id:release,previous_release_id:'c'.repeat(64)});
+ const before=await fs.readFile(file);
+ for(const args of [[],['--release','previous'],['--release','c'.repeat(64),'extra'],['--bad','c'.repeat(64)]]){
+  assert.throws(()=>rollbackArguments(args));
+  const result=spawnSync(process.execPath,['scripts/m1-rollback.mjs',...args],{env:{...process.env,MFV_RUNTIME_HOME:f.home},encoding:'utf8'});assert.notEqual(result.status,0);assert.match(result.stderr,/ROLLBACK_ARGUMENTS_INVALID/);
+ }
+ await assert.rejects(()=>rollback({runtimeHome:f.home,releaseId:release}),/EXACT_PREVIOUS_RELEASE_REQUIRED/);
+ assert.deepEqual(await fs.readFile(file),before);assert.deepEqual(await fs.readdir(f.data),[]);
+});
+
+test('compatibility snapshot includes historical bytes and rejects symlinks',async t=>{
+ const {archiveSnapshot}=await import('../scripts/m1-compatibility.mjs');const f=await fixture(t);
+ const dir=path.join(f.data,'m1-outcomes','SYNTHETIC','evaluations','old');await fs.mkdir(dir,{recursive:true});const file=path.join(dir,'result.json');await fs.writeFile(file,'old');
+ const before=await archiveSnapshot(f.data);await fs.writeFile(file,'changed');assert.notEqual((await archiveSnapshot(f.data)).sha256,before.sha256);
+ await fs.symlink(f.home,path.join(f.data,'m1-candidates'));await assert.rejects(()=>archiveSnapshot(f.data),/SYMLINK_FORBIDDEN/);
+});

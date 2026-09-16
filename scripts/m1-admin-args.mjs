@@ -11,3 +11,8 @@ export function releaseArguments(args) {
  check(typeof values['--destination']==='string'&&path.isAbsolute(values['--destination']),'ABSOLUTE_DESTINATION_REQUIRED');
  return {buildSha:values['--commit'],destination:path.resolve(values['--destination'])};
 }
+
+export function rollbackArguments(args) {
+ check(args.length===2&&args[0]==='--release'&&/^[a-f0-9]{64}$/.test(args[1]??''),'ROLLBACK_ARGUMENTS_INVALID');
+ return {releaseId:args[1]};
+}

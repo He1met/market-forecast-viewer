@@ -121,6 +121,11 @@ C5历史实测：43项数据单元测试、28项浏览器检查；当前 #13 验
 ```sh
 npm run m1:release -- --commit <40位完整commit-sha> --destination /absolute/new-candidate-directory
 MFV_RUNTIME_HOME=/absolute/runtime-home npm run m1:learning -- disable --reason '记录本次禁用原因'
+MFV_RUNTIME_HOME=/absolute/runtime-home npm run m1:rollback -- --release <64位previous-release-id>
 ```
 
-验证沙盒内打包自动标为 SYNTHETIC，拒绝正式激活。学习命令由已批准的固定安装包执行，业务锁内重新核对版本，记录生效时间；重复禁用保留原生效点和首个受影响 run，不改变预测/巡检/服务暂停状态。部署和代码回退公开命令仍待 FINAL-01/05 后续修复，不能据这两个入口认定完整维护链已完成。
+验证沙盒内打包自动标为 SYNTHETIC，拒绝正式激活。学习命令由已批准的固定安装包执行，业务锁内重新核对版本，记录生效时间；重复禁用保留原生效点和首个受影响 run，不改变预测/巡检/服务暂停状态。
+
+代码回退要求明确指定 current 记录的 previous release，复用该精确包的既有维护者批准；当前预测、巡检和服务必须均暂停且服务已退出。持业务锁用目标包自己的只读 reader 检查正式/候选原档、全部历史 capture/revision 和案例，核对原档前后哈希并保存兼容收据后才切换。失败、超时或未知格式拒绝切换，不删除新档；保留暂停且不自动启动服务。未发布失败 run 按目标包已知格式保留；未完成、损坏或不再合格的案例保守阻止切换，须调查，不能删档绕过。每次清单和回放各有30秒预算，不代表整个维护命令的硬截止。部署公开入口、健康检查和自动失败回退仍待 FINAL-01 后续修复。
+
+兼容快照覆盖 `forecast-runs`、`m1-candidates`、`m1-outcomes`、`m1-cases`、`m1-learning` 五类目录。其他原始来源由目标读取链校验；该快照不覆盖整个数据根的全部字节，不能替代完整备份。

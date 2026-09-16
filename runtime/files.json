@@ -61,6 +61,7 @@
     "scripts/m1-observation-alerts.mjs",
     "scripts/m1-capacity.mjs",
     "scripts/m1-notifications.mjs",
-    "scripts/m1-admin-args.mjs"
+    "scripts/m1-admin-args.mjs",
+    "scripts/m1-compatibility.mjs"
   ]
 }
