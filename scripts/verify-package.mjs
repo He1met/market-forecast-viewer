@@ -3,9 +3,21 @@ import fs from'node:fs/promises';import path from'node:path';import assert from'
 import {verifyTargetArchives,archiveSnapshot} from './m1-compatibility.mjs';
 import {verifyDeploymentHealth} from './m1-deploy-health.mjs';
 import net from 'node:net';
-const e=requireEvidence(),target=path.join(e.evidence_root,'runtime-package');
+import os from 'node:os';
+import {verifyRuntimeDependencies} from './m1-package.mjs';
+delete process.env.NODE_OPTIONS;delete process.env.NODE_PATH;delete process.env.ESBUILD_BINARY_PATH;
+const e=requireEvidence(),isolatedRoot=await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()),'mfv-package-isolated-')),target=path.join(isolatedRoot,'runtime-package');
+await fs.writeFile(path.join(e.evidence_root,'isolated-package.json'),JSON.stringify({isolatedRoot,target,reason:'No development checkout ancestor; dependency resolution must remain inside sealed package.'},null,2));
 const releaseResult=JSON.parse(execFileSync(process.execPath,['scripts/m1-release.mjs','--commit',execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),'--destination',target],{encoding:'utf8'}));
 assert.equal(releaseResult.synthetic,true);assert.equal(releaseResult.activated,false);assert.equal(releaseResult.maintainer_approval,false);const manifest=await verifyPackage(target);assert.equal(releaseResult.release_id,manifest.release_id);
+const dependencyEvidence=await verifyRuntimeDependencies(target,manifest);
+await fs.writeFile(path.join(e.evidence_root,'runtime-dependencies.json'),JSON.stringify(dependencyEvidence,null,2));
+const tsxDirectory=path.join(target,'node_modules/tsx'),hiddenTsx=path.join(isolatedRoot,'hidden-tsx');
+await fs.rename(tsxDirectory,hiddenTsx);
+try{await assert.rejects(()=>verifyRuntimeDependencies(target,manifest),/PACKAGE_DEPENDENCY_(MISSING|OUTSIDE):tsx/);}finally{await fs.rename(hiddenTsx,tsxDirectory);}
+const binaryRelative=Object.entries(dependencyEvidence.resolved).find(([name])=>name.startsWith('@esbuild/'))[1],binary=path.join(target,binaryRelative),hiddenBinary=path.join(isolatedRoot,'hidden-binary');
+await fs.rename(binary,hiddenBinary);
+try{await assert.rejects(()=>verifyRuntimeDependencies(target,manifest));}finally{await fs.rename(hiddenBinary,binary);}
 const syntheticHome=path.join(e.evidence_root,'synthetic-install');await stageRelease({packageRoot:target,runtimeHome:syntheticHome});await assert.rejects(()=>activate({runtimeHome:syntheticHome,releaseId:manifest.release_id,approval:{},config:{}}),/SYNTHETIC_PACKAGE_CANNOT_ACTIVATE/);
 // Replay every historical revision with the sealed target's own readers.
 const compatData=path.join(e.evidence_root,'compatibility-data');await fs.cp('artifacts',compatData,{recursive:true});
@@ -64,7 +76,7 @@ let paused=true;const server=await serve({codeRoot:process.cwd(),dataRoot:proces
 try{const base='http://127.0.0.1:'+port;const runtime=runtimeDisplaySchema.parse(await(await fetch(base+'/api/m1/runtime')).json());assert.equal(runtime.source,'installed');assert.equal(runtime.paused,true);assert.equal(runtime.inspection.freshness,'unknown');paused=false;const resumed=runtimeDisplaySchema.parse(await(await fetch(base+'/api/m1/runtime')).json());assert.equal(resumed.paused,false);assert.equal(resumed.inspection.paused,false);const index=await(await fetch(base+'/api/m1/index')).json();assert.ok(index.runs.some(x=>x.status==='valid'));const id=index.runs.find(x=>x.status==='valid').run_id;const result=await(await fetch(base+'/api/m1/runs/'+id)).json();assert.equal(result.run_id,id);assert.equal((await fetch(base+'/')).status,200);const original=await fs.readFile('dist/index.html');await fs.writeFile('dist/index.html','TAMPERED');assert.equal((await fetch(base+'/')).status,404);await fs.writeFile('dist/index.html',original);assert.equal((await fetch(base+'/')).status,200);assert.equal((await fetch(base+'/artifacts/forecast-runs/'+id+'/input.json')).status,404);assert.equal((await fetch(base+'/api/m1/index',{method:'POST'})).status,404);assert.equal((await fetch(base+'/api/m1/index',{headers:{Origin:'https://example.invalid'}})).status,404);console.log(JSON.stringify({status:'passed',isolated_http:true,legacy_replay:true,private_paths_rejected:true}));}finally{await new Promise(r=>server.close(r));}
 `],{cwd:target,encoding:'utf8',env:{...process.env,NODE_PATH:'',MFV_RUNTIME_HOME:e.evidence_root,MFV_DATA_ROOT:dataRoot},timeout:30000});
 console.log(smoke.trim());
-const tracked='config/tasks.json',sourceBefore=await fs.readFile(tracked);try{await fs.writeFile(tracked,'{"SYNTHETIC_UNCOMMITTED_CHANGE":true}');const dirtyTarget=path.join(e.evidence_root,'runtime-package-dirty-export');const second=await buildPackage({sourceRoot:process.cwd(),destination:dirtyTarget,synthetic:true,buildSha:manifest.build_sha});assert.deepEqual(await fs.readFile(path.join(dirtyTarget,tracked)),sourceBefore);assert.equal(second.source_kind,'git_archive');console.log(JSON.stringify({dirty_checkout_export:'passed',synthetic_not_deployable:second.synthetic}));}finally{await fs.writeFile(tracked,sourceBefore);}
+const tracked='config/tasks.json',sourceBefore=await fs.readFile(tracked);try{await fs.writeFile(tracked,'{"SYNTHETIC_UNCOMMITTED_CHANGE":true}');const dirtyTarget=path.join(isolatedRoot,'runtime-package-dirty-export');const second=await buildPackage({sourceRoot:process.cwd(),destination:dirtyTarget,synthetic:true,buildSha:manifest.build_sha});assert.deepEqual(await fs.readFile(path.join(dirtyTarget,tracked)),sourceBefore);assert.equal(second.source_kind,'git_archive');console.log(JSON.stringify({dirty_checkout_export:'passed',synthetic_not_deployable:second.synthetic}));}finally{await fs.writeFile(tracked,sourceBefore);}
 
 // Run failure/recovery entry chains from the sealed package with isolated synthetic data.
 const lifecycle=execFileSync(process.execPath,['--import','tsx','--input-type=module','-e',`
@@ -372,3 +384,5 @@ await withFeedbackFixture({codeRoot:process.cwd(),dataRoot:data,fixtureRoot:proc
 });
 `],{cwd:target,encoding:'utf8',env:{...process.env,NODE_PATH:'',MFV_RUNTIME_HOME:path.join(e.evidence_root,'synthetic-input-plan-home'),MFV_DATA_ROOT:path.join(e.evidence_root,'synthetic-input-plan-data'),MFV_FIXTURE_ROOT:dataRoot,MFV_FORWARD_FIXTURE:path.join(process.cwd(),'tests/fixtures/forward-feedback.mjs')},timeout:120000});
 console.log(inputPlanCheck.trim());
+
+await fs.rm(isolatedRoot,{recursive:true,force:false});

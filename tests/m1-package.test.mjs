@@ -1,2 +1,9 @@
 import test from'node:test';import assert from'node:assert/strict';import fs from'node:fs/promises';import os from'node:os';import path from'node:path';import{verifyClosure}from'../scripts/m1-package-build.mjs';
+import {verifyRuntimeDependencies} from '../scripts/m1-package.mjs';
+test('runtime dependency gate rejects ancestor fallback before executing borrowed modules',async t=>{
+ const parent=await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()),'mfv-dependency-parent-'));t.after(()=>fs.rm(parent,{recursive:true,force:true}));
+ const root=path.join(parent,'package'),borrowed=path.join(parent,'node_modules/tsx');await fs.mkdir(root);await fs.mkdir(borrowed,{recursive:true});
+ await fs.writeFile(path.join(borrowed,'package.json'),JSON.stringify({name:'tsx',main:'index.js'}));await fs.writeFile(path.join(borrowed,'index.js'),'throw Error("BORROWED_MODULE_EXECUTED")');
+ await assert.rejects(()=>verifyRuntimeDependencies(root,{files:{},dependencies:{tsx:'4.23.13'}}),/PACKAGE_DEPENDENCY_OUTSIDE:tsx/);
+});
 test('closure rejects missing static/dynamic imports, templates and executable JS omissions',async t=>{const root=await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()),'mfv-closure-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));for(const source of ['export const load=()=>import(`./missing.mjs`)','export const load=()=>import("./missing.mjs")','import "./missing.mjs";']){await fs.writeFile(path.join(root,'entry.js'),source);await assert.rejects(()=>verifyClosure(root,{schema:'MFV:RUNTIME_FILES:v1',files:['entry.js']}));}await fs.writeFile(path.join(root,'entry.js'),'import "./dependency.mjs";');await fs.writeFile(path.join(root,'dependency.mjs'),'export const x=1;');assert.deepEqual((await verifyClosure(root,{schema:'MFV:RUNTIME_FILES:v1',files:['entry.js','dependency.mjs']}))['entry.js'],['./dependency.mjs']);});
