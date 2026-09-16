@@ -7,8 +7,37 @@ import { createHash } from 'node:crypto';
 import { auditCodexEvents, generateForecast } from '../scripts/m1-forecast.mjs';
 import { newRun, freezeInput, readPublished } from '../scripts/m1-archive.mjs';
 import { rawOutputJsonSchema } from '../src/m1-contracts.ts';
+import {modelArguments} from '../scripts/m1-model.mjs';
 
 const stream = events => events.map(value => JSON.stringify(value)).join('\n');
+test('disabled Code Mode startup notice needs the exact adapter and actual controlled invocation', () => {
+  const notice={type:'item.completed',item:{type:'error',message:'Code Mode is unavailable because code-mode host is disabled. Code mode will fail closed; enable `features.code_mode_host` and install `codex-code-mode-host`.'}};
+  const args=modelArguments({workspace:'/fixture',schema:'/fixture/schema',output:'/fixture/output'});
+  const context={kind:'installed_frozen_input',cli_version:'codex-cli 0.154.0-alpha.6.2',args};
+  const events=[{type:'thread.started'},notice,{type:'turn.started'},{type:'item.completed',item:{type:'agent_message',text:'SYNTHETIC'}},{type:'turn.completed'}];
+  const accepted=auditCodexEvents(stream(events),context);
+  assert.equal(accepted.startup_notice_count,1);assert.equal(accepted.startup_warning_count,1);
+  assert.equal(accepted.unexpected_count,0);assert.equal(accepted.unexpected_tool_count,0);assert.equal(accepted.failed,false);
+  assert.equal(accepted.startup_notices[0].cli_version,context.cli_version);
+  for(const bad of [undefined,{}, {...context,kind:'legacy'}, {...context,cli_version:'codex-cli 0.154.1'},
+    {...context,args:args.filter(x=>x!=='code_mode')}, {...context,args:args.filter(x=>x!=='code_mode_host')},
+    {...context,args:args.filter(x=>x!=='--ignore-user-config')}, {...context,args:[...args,'--enable','code_mode_host']},
+    {...context,args:[...args,'--enable=code_mode']}, {...context,args:[...args,'-c','features.code_mode=true']},
+    {...context,args:[...args,'-cfeatures.code_mode=true']}, {...context,args:[...args,'--config=features.code_mode=true']},
+    {...context,args:[...args,'--profile','other']}, {...context,args:[...args,'--sandbox=danger-full-access']},
+    {...context,args:args.map(x=>x==='read-only'?'workspace-write':x)}]) {
+    const rejected=auditCodexEvents(stream(events),bad);assert.equal(rejected.startup_notice_count,0);assert.ok(rejected.unexpected_count>0);
+  }
+  for(const rejectedEvents of [[notice,...events.slice(2)], [events[0],events[2],notice,events[4]],
+    [events[0],notice,notice,...events.slice(2)],
+    ...[' Authentication failed','\nAuthentication failed',' '].map(s=>[events[0],{...notice,item:{...notice.item,message:notice.item.message+s}},...events.slice(2)]),
+    [events[0],{...notice,item:{...notice.item,message:'Authentication failed'}},...events.slice(2)],
+    [...events.slice(0,3),{type:'item.started',item:{type:'mcp_tool_call'}},events[4]],
+    [...events.slice(0,3),{type:'item.completed',item:{type:'new_unknown_tool'}},events[4]],
+    [...events,{type:'unparsed'}], ...[null,1,true,{type:42},{type:{}},{type:true}].map(value=>[...events,value])]) assert.ok(auditCodexEvents(stream(rejectedEvents),context).unexpected_count>0);
+  assert.equal(auditCodexEvents(stream([...events,{type:'turn.failed'}]),context).failed,true);
+  assert.equal(auditCodexEvents(stream([...events,{type:'error',message:'failure'}]),context).failed,true);
+});
 test('only the observed pre-turn chronicle startup warning is tolerated', () => {
   const warning = { type: 'item.completed', item: { type: 'error', message:
     'Under-development features enabled: chronicle. Under-development features are incomplete and may behave unpredictably. To suppress this warning, set `suppress_unstable_features_warning = true` in /fixture/config.toml.' } };

@@ -1,5 +1,13 @@
 # 开发进度与证据
 
+## 2026-09-16 安装完成与 CLI-STARTUP-NOTICE-01
+
+用户精确批准后，main612e2496的236180d9包已通过公共入口安装为paused；旧档、备份及隔离恢复验证完成，三个官方业务任务均PAUSED。doctor包完整性通过，全档审计保留一条历史failed；初次手工恢复包装遗漏MFV_DATA_ROOT的失败也留存，同backup/同目录按既有恢复入口的环境机制续接成功。首次安装previous为null，同盘备份只属local-recovery。
+
+13:47 UTC合法slot实际执行一次manual forecast，真实行情已冻结。脚本内两次Codex调用均exit0并产生原始输出，但CLI 0.154.0-alpha.6.2在turn.started之前发出精确Code Mode host disabled诊断；旧审计将其计为unexpected，故最终MODEL_ATTEMPT_REJECTED，无publication。旧结果兜底核对两条mature，但总体partial，不能替代新预测成功。HTTP页面准确显示manual失败、索引尚未初始化；三暂停已恢复、自有服务已停止。两次原始输出/失败收据不改判，不补发同slot。
+
+最小返修仅为上下文绑定的事件分类：保持所有工具禁用，精确CLI适配版本、实际受控argv与thread.started后/turn.started前完整消息匹配时单独记录startup_notice；默认/旧调用者、其它版本、配置覆盖、回合内同文、其它错误、未知事件与工具调用仍拒绝。新attempt收据绑定events及invocation哈希并记录匹配原因/版本；原已失败记录不回写。工程验证、独立审查及新候选身份另留真实收据，真实单轮/自然运行/方法效果仍未通过。
+
 ## 2026-09-16 安装实测发现 INSTALL-DEPENDENCY-01
 
 用户已精确批准 main `94ae6e559316e261419e638004303aa7e4b1943d` 的 release `46afddca6daffacbf43363b5364c353ca4a6f0ccf3f6768a9388d16cb1a9d22d` 安装及受控验证，来源如实转录并独立核对，不等于自然业务恢复。429个旧档文件保护与迁移逐文件哈希一致；stage成功，公共deploy在目标包兼容读器启动时实际失败 `ERR_MODULE_NOT_FOUND: tsx`，未写入current或安装配置，未运行forecast。
