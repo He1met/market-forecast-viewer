@@ -1,5 +1,15 @@
 # 开发进度与证据
 
+## 2026-09-16 部署入口与切换前 HTTP 检查
+
+从0b4778c恢复Issue15，新增m1:deploy精确release及显式批准/配置参数。既有维护者精确包批准、三项暂停、SYNTHETIC拒绝与旧档兼容门禁保留。业务锁内用目标包在固定本机端口做只读health/runtime/page及已有index检查，15秒子进程截止，检查结束释放端口；不留运行服务。首次缺投影明确not_initialized，已有坏投影拒绝。成功只是activated_paused，切换前目标HTTP不冒充已安装entry端到端验证。
+
+安装三文件保存原/目标字节intent、先持久化pending门禁再依次写入和回读，current最后写。独立首审P1指出原版仅catch内恢复不能处理真实进程中断，已新增launcher/entry/服务/部署/回退门禁和显式m1:recover-installation，正常业务锁下从hash-bound intent取原根/端口、核验精确包/既有批准/原档兼容后恢复。恢复自身可重入，已提交结果仅核对后收尾。外来变化/失锁/不兼容保留恢复现场；三文件不是整体原子事务。
+
+复审进一步指出历史无门禁launcher和HTTP端口变更路径：现拒绝不具备精确包/显式维护者协议确认的旧安装，清单协议绑定六个门禁文件SHA，实际home/launch逐字匹配；旧安装缺协议需单独受控迁移，不做关键词匹配。普通升级拒绝HTTP端口改变，恢复核对before/after配置关联。
+
+最终隔离quality Node221/221、Vitest177/177、typecheck/build通过；固定包三步通过。实际子进程SIGKILL覆盖三文件提交及恢复各边界、新结果已写/pending待清除，使用home/launch.mjs真实安装入口核对门禁、新进程正常获取业务锁、恢复一致状态或完成已提交状态，未知字节保留；旧无门禁fixture拒绝，HTTP端口变更在写pending和安装文件前拒绝。该中断测试为SYNTHETIC文件控制层，不伪造生产批准或放开合成激活门。固定包覆盖真实目标HTTP、未知监听不动、退出后端口可重用、projection缺失/正常/坏档和五类归档保持。首次package因缺index失败，修正显式未初始化分支，保留失败证据。监督v3独立核对19当前文件SHA、两套各17非文档副本、两份completed及667项内部证据，新增P1/P2为FIXED_VERIFIED，本片LOCAL_SLICE_PASSED；未重跑测试，随后仅补本段审查状态，受测代码不变。不宣称正式激活/持续服务/旧版本服务恢复已测试。完整工程CHANGES_REQUIRED，FINAL-01仍PARTIAL，FINAL-02..04未修。业务PAUSED。
+
 ## 2026-09-16 回退前目标包兼容门禁
 
 从920f325恢复Issue15；新增公开m1:rollback完整previous release参数校验。激活/回退持业务锁后验证现有安装三项暂停、固定current及数据根/互斥端口，使用精确目标包自己的reader逐项只读回放正式/候选、全部capture/评分revision及案例，档案与包前后完整性一致后才写兼容收据和切换指针。未发布失败记录按目标已知格式保留；未知/未完成/不合格案例保守拒绝；不删除新档、不改评分。超时终止自有只读Node子进程，分段预算不冒充整条维护硬截止。

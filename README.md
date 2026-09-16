@@ -122,10 +122,20 @@ C5历史实测：43项数据单元测试、28项浏览器检查；当前 #13 验
 npm run m1:release -- --commit <40位完整commit-sha> --destination /absolute/new-candidate-directory
 MFV_RUNTIME_HOME=/absolute/runtime-home npm run m1:learning -- disable --reason '记录本次禁用原因'
 MFV_RUNTIME_HOME=/absolute/runtime-home npm run m1:rollback -- --release <64位previous-release-id>
+MFV_RUNTIME_HOME=/absolute/runtime-home npm run m1:deploy -- --release <64位staged-release-id> --approval /absolute/approval.json --config /absolute/installation.json
+MFV_RUNTIME_HOME=/absolute/runtime-home npm run m1:recover-installation -- --transaction <installation-pending.json中的事务UUID>
 ```
 
 验证沙盒内打包自动标为 SYNTHETIC，拒绝正式激活。学习命令由已批准的固定安装包执行，业务锁内重新核对版本，记录生效时间；重复禁用保留原生效点和首个受影响 run，不改变预测/巡检/服务暂停状态。
 
-代码回退要求明确指定 current 记录的 previous release，复用该精确包的既有维护者批准；当前预测、巡检和服务必须均暂停且服务已退出。持业务锁用目标包自己的只读 reader 检查正式/候选原档、全部历史 capture/revision 和案例，核对原档前后哈希并保存兼容收据后才切换。失败、超时或未知格式拒绝切换，不删除新档；保留暂停且不自动启动服务。未发布失败 run 按目标包已知格式保留；未完成、损坏或不再合格的案例保守阻止切换，须调查，不能删档绕过。每次清单和回放各有30秒预算，不代表整个维护命令的硬截止。部署公开入口、健康检查和自动失败回退仍待 FINAL-01 后续修复。
+代码回退要求明确指定 current 记录的 previous release，复用该精确包的既有维护者批准；当前预测、巡检和服务必须均暂停且服务已退出。持业务锁用目标包自己的只读 reader 检查正式/候选原档、全部历史 capture/revision 和案例，核对原档前后哈希并保存兼容收据后才切换。失败、超时或未知格式拒绝切换，不删除新档；保留暂停且不自动启动服务。未发布失败 run 按目标包已知格式保留；未完成、损坏或不再合格的案例保守阻止切换，须调查，不能删档绕过。每次清单和回放各有30秒预算，不代表整个维护命令的硬截止。
+
+`m1:deploy` 使用已 staged 的精确包，读取显式批准/配置文件；沿用精确 release/build 批准与 SYNTHETIC 拒绝门禁。持业务锁先运行目标包的只读 HTTP 冒烟，使用配置的固定本机端口，核对 health 的 release/build、runtime 契约、页面，以及已存在的 index。首次未建立 projection 时记录 `index_status=not_initialized`，不伪称 index 验证通过，也不生成投影。已有坏 index、端口冲突、超时均拒绝切换；不杀未知监听者。冒烟子进程15秒限时，结束后端口释放，服务不留运行。
+
+升级前要求旧包和新包的清单声明 `MFV:INSTALL_PENDING:v1` 并绑定六个门禁文件SHA，精确维护者批准文件须显式包含 `installation_protocol: "MFV:INSTALL_PENDING:v1"`，实际安装launcher须逐字匹配被批准旧包。旧包缺该协议/批准，或旧launcher不匹配时，拒绝普通部署与恢复；不能靠文件含有关键词认定支持。此类历史安装需要单独受控迁移，本入口不自动升级门禁。首次安装仅在launcher/config/current均不存在时允许。普通升级拒绝改变HTTP端口、数据根或互斥端口；端口迁移同样需独立流程。
+
+安装切换保存 launcher/config/current 原字节与目标字节，先写绑定 intent 哈希的 `installation-pending.json`，再逐个写入并回读，current 最后写。未完成事务使部署、回退、launcher、安装entry与服务启动拒绝消费混合状态。捕获的中途失败会先验证旧包及旧档兼容，再恢复原字节；首装则只移除本次创建的三个安装文件。外来变化、失锁或旧包不兼容保留现场并返回 `INSTALL_COMMIT_RECOVERY_REQUIRED`。
+
+强杀后的下一进程使用显式 `m1:recover-installation`；从绑定intent取得原安装根/互斥端口，持正常业务锁验证精确目标包、既有批准及原档兼容，幂等恢复。若成功结果已落盘而pending未清除，则核对完整目标字节后完成收尾；否则恢复原字节。恢复自身中断可重复该命令，未知外来字节拒绝覆盖；未清除pending不得重新部署。三文件不是整体原子事务。成功状态为 `activated_paused`；健康证据范围是切换前目标HTTP，不代表安装entry、持续服务或正式部署验收。正式包激活及安装入口端到端验证仍须精确维护者批准。
 
 兼容快照覆盖 `forecast-runs`、`m1-candidates`、`m1-outcomes`、`m1-cases`、`m1-learning` 五类目录。其他原始来源由目标读取链校验；该快照不覆盖整个数据根的全部字节，不能替代完整备份。

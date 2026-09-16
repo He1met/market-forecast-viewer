@@ -1,3 +1,4 @@
+import {installationProtocol,protocolFiles} from './m1-install-protocol.mjs';
 const allowedName=s=>typeof s==='string'&&!path.isAbsolute(s)&&!s.includes('\\')&&s.split('/').every(x=>x&&x!=='.'&&x!=='..');
 import fs from'node:fs/promises';import path from'node:path';import{execFileSync}from'node:child_process';import{init,parse}from'es-module-lexer';
 import{digest,encode,check,readBytes,readJson,writeOnce,within,safePath,sourceCodeRoot as here}from'./m1-files.mjs';import{verifyPackage,tree}from'./m1-package.mjs';
@@ -23,7 +24,8 @@ export async function buildPackage({sourceRoot=here,destination,buildSha,synthet
  // npm's binary aliases are not runtime inputs; use explicit module files and remove only package-created aliases.
  await fs.rm(path.join(destination,'node_modules/.bin'),{recursive:true,force:true});
  const files={};for(const name of await tree(destination)){const bytes=await readBytes(destination,path.join(destination,name),256*1024*1024);files[name]={sha256:digest(bytes),bytes:bytes.length};}
- const manifest={schema:'MFV:RUNTIME_PACKAGE:v1',build_sha:buildSha,source_kind:'git_archive',source_archive_sha256:digest(archive),synthetic,platform:process.platform,architecture:process.arch,built_at:new Date().toISOString(),node_major:22,dependencies,files,imports,policy:await readJson(sourceRoot,path.join(sourceRoot,'config/m1-defaults.json'))};
+ const installation_protocol={schema:installationProtocol,files:Object.fromEntries(protocolFiles.map(file=>[file,files[file].sha256]))};
+ const manifest={installation_protocol,schema:'MFV:RUNTIME_PACKAGE:v1',build_sha:buildSha,source_kind:'git_archive',source_archive_sha256:digest(archive),synthetic,platform:process.platform,architecture:process.arch,built_at:new Date().toISOString(),node_major:22,dependencies,files,imports,policy:await readJson(sourceRoot,path.join(sourceRoot,'config/m1-defaults.json'))};
  manifest.release_id=digest(encode(manifest));await writeOnce(destination,path.join(destination,'manifest.json'),manifest);await verifyPackage(destination);await fs.rm(buildRoot,{recursive:true,force:false});return manifest;
 }
 

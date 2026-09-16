@@ -62,6 +62,9 @@
     "scripts/m1-capacity.mjs",
     "scripts/m1-notifications.mjs",
     "scripts/m1-admin-args.mjs",
-    "scripts/m1-compatibility.mjs"
+    "scripts/m1-compatibility.mjs",
+    "scripts/m1-deploy-health.mjs",
+    "scripts/m1-install-commit.mjs",
+    "scripts/m1-install-protocol.mjs"
   ]
 }

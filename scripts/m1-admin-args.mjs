@@ -16,3 +16,15 @@ export function rollbackArguments(args) {
  check(args.length===2&&args[0]==='--release'&&/^[a-f0-9]{64}$/.test(args[1]??''),'ROLLBACK_ARGUMENTS_INVALID');
  return {releaseId:args[1]};
 }
+
+export function deployArguments(args) {
+ check(args.length===6,'DEPLOY_ARGUMENTS_INVALID');
+ const values={};for(let i=0;i<args.length;i+=2){check(['--release','--approval','--config'].includes(args[i])&&!Object.hasOwn(values,args[i]),'DEPLOY_ARGUMENTS_INVALID');values[args[i]]=args[i+1];}
+ check(/^[a-f0-9]{64}$/.test(values['--release']??''),'EXACT_RELEASE_REQUIRED');
+ for(const key of ['--approval','--config'])check(typeof values[key]==='string'&&path.isAbsolute(values[key]),'ABSOLUTE_DEPLOY_FILE_REQUIRED');
+ return {releaseId:values['--release'],approvalFile:path.resolve(values['--approval']),configFile:path.resolve(values['--config'])};
+}
+export function recoveryArguments(args) {
+ check(args.length===2&&args[0]==='--transaction'&&/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(args[1]??''),'RECOVERY_ARGUMENTS_INVALID');
+ return {transactionId:args[1]};
+}

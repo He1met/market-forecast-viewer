@@ -1,8 +1,10 @@
 import {learningArguments} from './m1-admin-args.mjs';
+import {assertInstallationSettled} from './m1-files.mjs';
 // Development convenience only; all business code runs from the pinned installed release.
 import path from'node:path';import{spawn}from'node:child_process';
 const home=process.env.MFV_RUNTIME_HOME,command=process.argv[2];
 if(!home||!path.isAbsolute(home))throw Error('MFV_RUNTIME_HOME_REQUIRED');
+await assertInstallationSettled(home);
 if(!['forecast','ops','backup','doctor','serve','pause','resume','learning'].includes(command))throw Error('INSTALLED_COMMAND_INVALID');
 const args=process.argv.slice(3),audit=command==='doctor'&&args.length===1&&args[0]==='--full-audit';
 if(command==='learning')learningArguments(args);

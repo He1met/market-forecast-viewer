@@ -35,7 +35,9 @@
     "m1:resume": "node scripts/m1-installed.mjs resume",
     "m1:release": "node scripts/m1-release.mjs",
     "m1:learning": "node scripts/m1-installed.mjs learning",
-    "m1:rollback": "node scripts/m1-rollback.mjs"
+    "m1:rollback": "node scripts/m1-rollback.mjs",
+    "m1:deploy": "node scripts/m1-deploy.mjs",
+    "m1:recover-installation": "node scripts/m1-recover-installation.mjs"
   },
   "dependencies": {
     "fancy-canvas": "2.1.0",

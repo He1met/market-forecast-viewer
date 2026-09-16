@@ -1,3 +1,4 @@
+import {assertInstallationSettled} from './m1-files.mjs';
 import fs from 'node:fs/promises';import path from 'node:path';import net from 'node:net';import {spawn} from 'node:child_process';import {randomUUID} from 'node:crypto';
 import {processIdentity} from './m1-mutex.mjs';import {readJson,atomic,exists,check,safePath} from './m1-files.mjs';
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
@@ -19,6 +20,7 @@ export async function serviceStatus({runtimeHome,port}){
  return{status:occupancy==='occupied'?'unknown_listener':occupancy==='vacant'?'exited':'listener_unverified',owner};
 }
 async function startUnlocked({runtimeHome,port,releaseId,paused=true,automatic=false}){
+ await assertInstallationSettled(runtimeHome);
  if(paused)return{status:'paused'};const state=await serviceStatus({runtimeHome,port});if(state.status==='healthy')return state;
  check(['not_started','exited'].includes(state.status),'SERVICE_OWNER_OR_PORT_CONFLICT');
  const code=path.join(runtimeHome,'releases',releaseId);await safePath(runtimeHome,code);

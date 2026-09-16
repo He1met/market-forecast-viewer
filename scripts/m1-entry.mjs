@@ -1,4 +1,5 @@
 import {learningArguments} from './m1-admin-args.mjs';
+import {assertInstallationSettled} from './m1-files.mjs';
 import {notificationSummary} from './m1-notifications.mjs';
 import {doctor,doctorExitCode} from './m1-doctor.mjs';
 import {scoreOldForecasts} from './m1-ops.mjs';
@@ -6,6 +7,7 @@ import {capacitySnapshot,requireCapacity} from './m1-capacity.mjs';
 import {setForecastPaused,disableLearning} from './m1-admin.mjs';
 import fs from'node:fs/promises';import path from'node:path';import{fileURLToPath}from'node:url';import{validateInstallation,readJson,writeOnce,atomic,check,exists}from'./m1-files.mjs';import{verifyPackage}from'./m1-package.mjs';import{serve}from'./m1-server.mjs';import{cycle}from'./m1-cycle.mjs';import{prepareForecast}from'./m1-input.mjs';import{generateInstalled,generateCandidate}from'./m1-model.mjs';import{createDisplayReader}from'./m1-display.mjs';import{projectionStore}from'./m1-index.mjs';import{ops}from'./m1-ops.mjs';import{backup,restore}from'./m1-backup.mjs';import{replayRestored}from'./m1-restore-replay.mjs';import{caseStore}from'./m1-cases.mjs';import{collectCalendar,collectDerivatives}from'./m1-public-data.mjs';import{experimentStore,effectivePolicy}from'./m1-experiments.mjs';import{supplementary}from'./m1-supplementary.mjs';import{startService,serviceStatus}from'./m1-service.mjs';
 export async function entry(command,home,releaseId,args=[]){
+ await assertInstallationSettled(home);
  if(command==='learning')learningArguments(args);
  else check(args.length===0||(command==='doctor'&&args.length===1&&args[0]==='--full-audit'),'ENTRY_ARGUMENTS_INVALID');
  const codeRoot=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),config=await validateInstallation(path.join(home,'installation.local.json'));process.env.MFV_DATA_ROOT=config.data_root;process.env.MFV_RUNTIME_HOME=home;

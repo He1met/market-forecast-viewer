@@ -7,6 +7,7 @@ if(args.length&&!learning&&!(command==='doctor'&&args.length===1&&args[0]==='--f
 if(!path.isAbsolute(process.argv[2]??'')||!['forecast','ops','serve','doctor','backup','pause','resume','notifications','learning'].includes(command))throw Error('LAUNCH_ARGUMENTS_INVALID');
 if(command==='learning'&&!learning)throw Error('LAUNCH_ARGUMENTS_INVALID');
 if(await fs.realpath(home)!==home)throw Error('RUNTIME_HOME_SYMLINK');
+try{await fs.lstat(path.join(home,'installation-pending.json'));throw Error('INSTALLATION_RECOVERY_REQUIRED');}catch(error){if(error.code!=='ENOENT')throw error;}
 const installation=JSON.parse(await fs.readFile(path.join(home,'installation.local.json'),'utf8'));
 const current=JSON.parse(await fs.readFile(path.join(home,'current.json'),'utf8'));
 if(!/^[a-f0-9]{64}$/.test(current.release_id))throw Error('CURRENT_RELEASE_INVALID');
