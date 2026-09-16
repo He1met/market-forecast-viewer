@@ -12,7 +12,7 @@
 
 ## 候选包与安装
 
-包从精确 Git 提交导出并重新构建，使用单独锁定的运行依赖；合成验证包标为 synthetic，禁止激活。开发 checkout、runtime_home、data_root 分开；runtime_home/current.json 只指向已核验 release。正式激活需要维护者对精确 build SHA/release ID 的批准来源，仍不可自行合并 main 或提前切包。
+包从精确 Git 提交导出并重新构建，使用单独锁定的运行依赖；合成验证包标为 synthetic，禁止激活。开发 checkout、runtime_home、data_root 分开；runtime_home/current.json 只指向已核验 release。正式激活需要维护者对精确 build SHA/release ID 的批准来源；范围内合并已获2026-09-16用户持续授权，必要测试及独立审查通过后可正常squash，不得提前切包或恢复业务。
 
 在本地填好安装配置并保留 forecast_paused、ops_paused、service_paused=true。backup.target 必须已经存在且在生产数据与运行目录之外；记录实际 device_id，未挂载或身份变化将拒绝备份，不创建替代目录。绝对本机路径只进入 installation.local.json。
 
@@ -62,7 +62,7 @@ forecast/ops/backup 的独立 started/result 记录包含真实 MFV_TRIGGER、MF
 
 显式 `npm run m1:doctor -- --full-audit`（或稳定启动器末尾加`--full-audit`）才遍历正式/候选原档与案例，重读最新核对及其引用capture、重算案例，不补采、不创建评分revision、不更新索引、不调用模型。历史全部revision不在此次范围，`historical_revisions_audited=false`；不称所有历史评分已通过。最新核对的failed/未知评分会计入失败，即使显示读取器未抛异常；合法not_evaluated单独计数，available记录中的部分观测/缺数据不当成坏档。30秒协作式预算仅在文件操作之间检查；预算耗尽/清单不可读为incomplete，损坏/不可资格化对象为failed，两者均打印JSON并退出2。该审计不是备份恢复演练，也不提供并发写入期间的事务快照。默认doctor不遍历原档；两种模式均不领取或恢复业务锁、不杀进程、不修文件。未知参数非0退出。
 
-分别报告工程验证、安装版真实单轮、至少两期自然运行、方法效果。测试成功、配置 ACTIVE、历史预测可读均不能替代后面三项证据。合并/正式切包前准备精确提交、CI、审查记录、候选包与配置差异供维护者确认。
+分别报告工程验证、安装版真实单轮、至少两期自然运行、方法效果。测试成功、配置 ACTIVE、历史预测可读均不能替代后面三项证据。合并前核对精确提交、CI与独立审查并按持续授权执行；正式切包前另准备精确main候选包与配置差异供维护者确认。
 
 
 ## 容量限制

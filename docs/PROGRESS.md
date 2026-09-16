@@ -1,5 +1,15 @@
 # 开发进度与证据
 
+## 2026-09-16基线合并与持续合并授权
+
+用户直接授权“合并，项目以后可以自行合并”，来源由监督任务转交并LOCAL_ONLY独立留存，不伪造GitHub owner review。PR #7精确已审9862f7513cfef73625afadf9428f53feaf7bd549已于08:06:42 UTC正常squash为main的2c901c9738ccc30aec72fa385b9727788113ca23，两个提交文件树一致。旧分支/原档保留，在同checkout短分支落地规则更新。持续授权只允许已批准范围、必要测试及独立审查通过的精确提交正常合并；不授权扩大阶段、正式激活/恢复业务或交易。
+
+原executor硬编码open PR #7与feat分支，合并后无法同步。最小修复改为显式PR/分支绑定并纳入快照哈希，校验同仓open PR/base main及分支；verify-release按同一绑定重读，claim核对本地分支，放行来源/版本/依赖门禁不变。历史PR #7正式依赖审查保留。验证、规则增量审查/CI/合并及最终main候选按真实收据落地。监督已更新并回读官方chart-mvp正文以匹配持续授权与实际交付绑定，保留ACTIVE、每小时00分、gpt-6-astra/medium、Local及项目ID；业务PAUSED。
+
+main首次CI35072011879失败：quality/runtime-package成功，browser的1440-dpr1合成缺口用例在setRange后单次像素断言得到0，ci-required正确失败。已保存原始artifact并核对日志/结果SHA；trace明确两次snapshot仍为旧visibleTime，像素读取与坐标分离。只修测试等待：先精确等目标visibleTime，再同次浏览器读取坐标和像素并轮询原有阈值，未改绘制或放宽断言。相关evaluation浏览器24/24通过；绑定修复隔离quality Node234/234、Vitest177/177及typecheck/build通过，新增合并旧PR/新绑定/错分支/错目标与失效快照回归。原main失败不重跑掩盖，待修复PR及后续main真实CI；真实业务仍PAUSED。
+
+独立首审确认上述10文件增量及失败诊断通过；后续自查并经监督确认还须补齐新PR再次合并后的同步边界。真实closed/有效merged_at/完整merge_commit_sha且merged字段无矛盾时仅只读同步；合并身份进入双读摘要，旧ready失效、queue无候选、verify-release及claim/pending恢复均拒绝写实施。未合并或矛盾closed拒绝，显式新open绑定需重新语义审查。新增状态转换/身份变化/重复只读/新绑定回归，最终结果及独立复核按收据记录。
+
 ## 2026-09-16 最终代码复核与便携交付修正
 
 独立监督在27699ff完整SHA基线核对171个跟踪文件、676个候选manifest文件及来源/保全哈希；FINAL-01具名维护入口缺口为CODE_FIXED_REVIEWED，结合FINAL-02..06复审，原六项代码问题已解决，未发现新增业务逻辑阻断。未重跑测试；该基线CI35059135212四项成功。最终交付与实机验收仍未完成。

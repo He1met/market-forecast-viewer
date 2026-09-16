@@ -150,36 +150,54 @@ const github = endpoint => JSON.parse(execFileSync('gh', ['api', '--paginate', '
   `repos/${repo}/${endpoint}`], { encoding: 'utf8', timeout: 60000, maxBuffer: 16 * 1024 * 1024 })).flat();
 
 // Sources are data for the official Codex executor to read, never executable instructions.
-function remoteInputs(get) {
+function deliveryBinding(c, explicit) {
+  const binding = explicit ?? (fs.existsSync(c.state) ? json(c.state).delivery : null)
+    ?? { pr_number: 7, branch: 'feat/chart-mvp' };
+  if (!Number.isSafeInteger(binding.pr_number) || binding.pr_number < 1
+    || typeof binding.branch !== 'string' || binding.branch === 'main') throw Error('INVALID_DELIVERY_BINDING');
+  try { git(c.root, 'check-ref-format', '--branch', binding.branch); }
+  catch { throw Error('INVALID_DELIVERY_BINDING'); }
+  return { pr_number: binding.pr_number, branch: binding.branch };
+}
+
+function remoteInputs(get, delivery) {
   const issues = get('issues?state=all&per_page=100').filter(x => !x.pull_request);
   // Repository-wide pagination also includes closed prerequisites and PR conversations.
   // Avoid parsing dependency prose or one request per Issue.
   const comments = get('issues/comments?per_page=100');
-  const reviews = get('pulls/7/reviews?per_page=100');
-  const pr = get('pulls/7')[0];
-  if (pr?.state !== 'open' || pr.head?.ref !== 'feat/chart-mvp'
+  const reviews = get(`pulls/${delivery.pr_number}/reviews?per_page=100`);
+  // Preserve the original baseline's formal dependency reviews after its merge.
+  if (delivery.pr_number !== 7) reviews.push(...get('pulls/7/reviews?per_page=100'));
+  const pr = get(`pulls/${delivery.pr_number}`)[0];
+  const merged = pr?.state === 'closed' && pr.merged !== false && typeof pr.merged_at === 'string'
+    && Number.isFinite(Date.parse(pr.merged_at)) && /^[a-f0-9]{40}$/.test(pr.merge_commit_sha ?? '');
+  if ((!merged && pr?.state !== 'open') || (pr.state === 'open' && (pr.merged === true || pr.merged_at != null))
+    || pr.head?.ref !== delivery.branch || pr.base?.ref !== 'main'
     || pr.head?.repo?.full_name !== repo) throw Error('WRONG_REMOTE_BASELINE');
   const unique = [...new Map([...comments, ...reviews].map(x => [x.html_url, x])).values()];
-  return structuredClone({ issues, reviews: unique, remote_head_sha: pr.head.sha });
+  return structuredClone({ issues, reviews: unique, remote_head_sha: pr.head.sha,
+    delivery: { ...delivery, state: merged ? 'merged' : 'open', merge_commit_sha: merged ? pr.merge_commit_sha : null } });
 }
 
 export const remoteDigest = input => sha(JSON.stringify({
-  issues: input.issues, reviews: input.reviews, remote_head_sha: input.remote_head_sha,
+  issues: input.issues, reviews: input.reviews, remote_head_sha: input.remote_head_sha, delivery: input.delivery,
 }));
 
-export function syncInbox(c, runId, get = github) {
+export function syncInbox(c, runId, get = github, explicitDelivery) {
   owned(c, runId);
   const file = path.join(c.base, 'inbox.json');
   // Invalidate before network I/O: crashes and failed refreshes cannot reuse ready.
   atomic(file, { schema: 'MFV:INBOX:v1', sync_status: 'SYNCING', releases: [] });
   try {
-    const inputs = remoteInputs(get);
-    if (remoteDigest(remoteInputs(get)) !== remoteDigest(inputs)) throw Error('REMOTE_CHANGED_DURING_SYNC');
+    const delivery = deliveryBinding(c, explicitDelivery);
+    const inputs = remoteInputs(get, delivery);
+    if (remoteDigest(remoteInputs(get, delivery)) !== remoteDigest(inputs)) throw Error('REMOTE_CHANGED_DURING_SYNC');
     const inbox = { schema: 'MFV:INBOX:v1', repo, sync_status: 'OK', sync_run_id: runId,
       sync_id: randomUUID(), synced_at: new Date().toISOString(),
       expires_at: new Date(Date.now() + 15 * 60 * 1000).toISOString(), ...inputs,
       remote_snapshot_sha256: remoteDigest(inputs), releases: [],
-      gate_result: queueCandidates(inputs.issues).length ? 'REQUIRES_EVIDENCE_REVIEW' : 'EMPTY_QUEUE' };
+      gate_result: inputs.delivery.state === 'merged' ? 'MERGED_DELIVERY_READ_ONLY'
+        : queueCandidates(inputs.issues).length ? 'REQUIRES_EVIDENCE_REVIEW' : 'EMPTY_QUEUE' };
     atomic(file, inbox);
     return { status: 'SYNCED', gate_result: inbox.gate_result, candidates: localQueue(c).candidates,
       review_count: inbox.reviews.length, remote_head_sha: inbox.remote_head_sha,
@@ -200,6 +218,7 @@ export function verifyRelease(c, runId, evidence, get = github) {
   // A failed or interrupted review must not retain an earlier release from this run.
   atomic(file, { ...inbox, sync_status: 'VERIFYING', releases: [] });
   try {
+    if (inbox.delivery?.state !== 'open') throw Error('DELIVERY_NOT_OPEN');
     if (evidence.schema !== 'MFV:RELEASE_REVIEW:v1' || evidence.sync_id !== inbox.sync_id
       || evidence.remote_snapshot_sha256 !== inbox.remote_snapshot_sha256
       || evidence.decision !== 'approved' || evidence.scope !== 'project-development') throw Error('INVALID_RELEASE_REVIEW');
@@ -219,14 +238,14 @@ export function verifyRelease(c, runId, evidence, get = github) {
       }
     }
     // Re-read all relevant issues/comments/reviews, including a newly posted veto.
-    if (remoteDigest(remoteInputs(get)) !== inbox.remote_snapshot_sha256) throw Error('REMOTE_CHANGED_DURING_REVIEW');
+    if (remoteDigest(remoteInputs(get, deliveryBinding(c, inbox.delivery))) !== inbox.remote_snapshot_sha256) throw Error('REMOTE_CHANGED_DURING_REVIEW');
     if (Date.parse(inbox.expires_at) <= Date.now()) throw Error('EXPIRED_DURING_REVIEW');
     const record = { ...evidence, run_id: runId, verified_at: new Date().toISOString(), visibility: 'LOCAL_ONLY' };
     const evidenceSha = sha(JSON.stringify(record));
     const evidencePath = path.join(c.base, `release-review-${evidenceSha}.json`);
     atomic(evidencePath, record);
     const verified = { ...stamp, approved: true, dependencies_satisfied: true,
-      branch: 'feat/chart-mvp', scope: 'project-development', gate: evidence.gate,
+      branch: inbox.delivery.branch, scope: 'project-development', gate: evidence.gate,
       review_id: evidence.review_id, source_comment_url: source.html_url,
       source_body_sha256: sha(source.body), evidence_sha256: evidenceSha };
     atomic(file, { ...inbox, releases: [verified], gate_result: 'VERIFIED_READY' });
@@ -265,11 +284,11 @@ export function localQueue(c, now = Date.now()) {
     || !Number.isFinite(Date.parse(inbox.synced_at)) || Date.parse(inbox.synced_at) > now) {
     return { status: 'INVALID_OR_EXPIRED_INBOX', candidates: [] };
   }
-  const candidates = queueCandidates(inbox.issues).filter(task => inbox.releases.some(release =>
+  const candidates = queueCandidates(inbox.issues).filter(task => (!inbox.delivery || inbox.delivery.state === 'open') && inbox.releases.some(release =>
     release.issue_number === task.issue_number && release.task_version === task.task_version
     && release.body_sha256 === task.body_sha256 && release.updated_at === task.updated_at
     && release.approved === true && release.dependencies_satisfied === true
-    && release.branch === 'feat/chart-mvp' && release.scope === 'project-development'
+    && release.branch === (inbox.delivery?.branch ?? 'feat/chart-mvp') && release.scope === 'project-development'
     && release.review_id && release.source_comment_url
     && reviewedRelease(c, inbox, release)));
   return { status: candidates.length ? 'LOCAL_READY' : 'EMPTY_QUEUE', candidates,
@@ -280,9 +299,10 @@ export function claim(c, runId) {
   const owner = owned(c, runId);
   if (owner.issue_number !== 0) throw Error('ONE_ISSUE_PER_RUN');
   if (fs.realpathSync(c.root) !== fs.realpathSync(c.canonical)) throw Error('CANONICAL_CHECKOUT_REQUIRED');
-  if (snapshot(c).branch !== 'feat/chart-mvp') throw Error('WRONG_BRANCH');
   const queue = localQueue(c);
   if (!['LOCAL_READY', 'EMPTY_QUEUE'].includes(queue.status)) return { status: queue.status };
+  if (queue.inbox.delivery?.state === 'merged') return { status: 'MERGED_DELIVERY_READ_ONLY' };
+  if (snapshot(c).branch !== (queue.inbox.delivery?.branch ?? 'feat/chart-mvp')) throw Error('WRONG_BRANCH');
   if (owner.trigger === 'scheduled' && queue.inbox.sync_run_id !== runId) return { status: 'FRESH_SYNC_REQUIRED' };
   const previous = fs.existsSync(c.state) ? json(c.state) : null;
   const pending = previous && !['bootstrap_handoff', 'acknowledged'].includes(previous.phase);
@@ -306,6 +326,7 @@ export function claim(c, runId) {
   rememberAcknowledged(c, previous);
   atomic(path.join(c.lock, 'owner.json'), { ...owner, issue_number: task.issue_number });
   const checkpoint = saveCheckpoint(c, runId, { ...task, phase: 'claimed',
+    delivery: queue.inbox.delivery,
     claim_base_sha: pending ? previous.claim_base_sha : snapshot(c).head_sha,
     inbox_sha256: queue.inbox_sha256, next_step: 'Read local issue, release and reviews; implement only approved scope.' });
   return { status: pending ? 'RESUMED' : 'CLAIMED', checkpoint,
@@ -349,7 +370,8 @@ function main() {
   }
   else if (command === 'checkpoint') result = saveCheckpoint(c, args[0], json(args[1]));
   else if (command === 'claim') result = claim(c, args[0]);
-  else if (command === 'sync') result = syncInbox(c, args[0]);
+  else if (command === 'sync') result = syncInbox(c, args[0], github,
+    args.length > 1 ? { pr_number: Number(args[1]), branch: args[2] } : undefined);
   else if (command === 'verify-release') result = verifyRelease(c, args[0], json(args[1]));
   else if (command === 'receipt') result = receipt(c, args[0], json(args[1]));
   else if (command === 'recover') result = recovery(c, Number(args[0]));
