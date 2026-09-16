@@ -1,5 +1,13 @@
 # 开发进度与证据
 
+## 2026-09-16 安装实测发现 INSTALL-DEPENDENCY-01
+
+用户已精确批准 main `94ae6e559316e261419e638004303aa7e4b1943d` 的 release `46afddca6daffacbf43363b5364c353ca4a6f0ccf3f6768a9388d16cb1a9d22d` 安装及受控验证，来源如实转录并独立核对，不等于自然业务恢复。429个旧档文件保护与迁移逐文件哈希一致；stage成功，公共deploy在目标包兼容读器启动时实际失败 `ERR_MODULE_NOT_FOUND: tsx`，未写入current或安装配置，未运行forecast。
+
+根因是runtime锁文件误将生产依赖tsx及传递依赖标为dev，`npm ci --omit=dev`将其排除。旧包676项清单的哈希一致只证明字节完整，不能证明运行闭包；此前候选/工程验收不能继续表述为部署就绪。原package CI把目标包放在开发checkout的artifacts子目录，Node从祖先node_modules找到缺失依赖；清空NODE_PATH不能阻止该默认解析。
+
+最小返修保留所有版本与integrity，修正生产分类；verifyPackage在加载运行代码前核对tsx、zod、esbuild和当前平台binary均来自包内且被清单封存，实际执行binary、TypeScript入口及转换。package验证迁至系统临时隔离目录，保留逐项解析证据，增加缺tsx/缺binary与祖先依赖回落拒绝回归。测试及独立审查结果以本次精确提交收据为准。旧失败包、安装失败和迁移证据保留LOCAL_ONLY；新包激活需重新绑定精确身份，业务暂停、single_run_verified及自然运行仍未通过。
+
 ## 2026-09-16基线合并与持续合并授权
 
 用户直接授权“合并，项目以后可以自行合并”，来源由监督任务转交并LOCAL_ONLY独立留存，不伪造GitHub owner review。PR #7精确已审9862f7513cfef73625afadf9428f53feaf7bd549已于08:06:42 UTC正常squash为main的2c901c9738ccc30aec72fa385b9727788113ca23，两个提交文件树一致。旧分支/原档保留，在同checkout短分支落地规则更新。持续授权只允许已批准范围、必要测试及独立审查通过的精确提交正常合并；不授权扩大阶段、正式激活/恢复业务或交易。
