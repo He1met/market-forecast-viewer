@@ -5,17 +5,46 @@ import { pathToFileURL } from 'node:url';
 import { readFrozen, assertFrozenCode, prepareAttempt, completeAttempt, publishRun, readPublished } from './m1-archive.mjs';
 import { prepareForecast } from './m1-input.mjs';
 
-export function auditCodexEvents(stream) {
+const codeModeDisabledNotice = 'Code Mode is unavailable because code-mode host is disabled. Code mode will fail closed; enable `features.code_mode_host` and install `codex-code-mode-host`.';
+function disabledCodeModeContext(context) {
+  const args = context?.args;
+  if (context?.kind !== 'installed_frozen_input' || context.cli_version !== 'codex-cli 0.154.0-alpha.6.2'
+    || !Array.isArray(args) || !args.every(x => typeof x === 'string') || args[0] !== 'exec'
+    || !args.includes('--ignore-user-config') || args.filter(x => x === '--sandbox').length !== 1
+    || args[args.indexOf('--sandbox') + 1] !== 'read-only') return false;
+  // This adapter accepts the actual frozen-model invocation, not a claimed
+  // boolean. Reject profiles and feature overrides even if disables also occur.
+  const configs = new Set(['model_reasoning_effort="medium"', 'model_provider="openai"',
+    'forced_login_method="chatgpt"', 'web_search="disabled"', 'project_doc_max_bytes=0']);
+  if (args.some((x, i) => x.startsWith('--enable') || x.startsWith('--config')
+    || x.startsWith('--profile') || x === '-p' || x.startsWith('-c') && x !== '-c'
+    || x.startsWith('--sandbox=') || x === '-s' || x.includes('bypass-approvals-and-sandbox')
+    || x === '-c' && !configs.has(args[i + 1]))) return false;
+  return ['code_mode', 'code_mode_host'].every(feature => args.some((x, i) => x === '--disable' && args[i + 1] === feature));
+}
+export function auditCodexEvents(stream, context) {
   const events = stream.trim().split('\n').filter(Boolean).map(line => {
     try { return JSON.parse(line); } catch { return { type: 'unparsed' }; }
   });
   const known = ['thread.started', 'turn.started', 'turn.completed', 'turn.failed', 'error',
     'item.started', 'item.updated', 'item.completed'];
   let turnStarted = false, startupWarnings = 0;
+  const controlledDisabled = disabledCodeModeContext(context), startupNotices = [];
   const noticePrefix = 'Under-development features enabled: chronicle. Under-development features are incomplete and may behave unpredictably. To suppress this warning, set `suppress_unstable_features_warning = true` in ';
-  const unexpected = events.filter(event => {
+  const unexpected = events.filter((event, index) => {
     if (!event || typeof event !== 'object' || !known.includes(event.type)) return true;
     if (event.type === 'turn.started') turnStarted = true;
+    // Observed on the exact adapter version above, with both features disabled.
+    // Default/legacy callers get no exemption. Only the one precise pre-turn
+    // diagnostic directly after thread.started is a notice, never a tool event.
+    if (controlledDisabled && !turnStarted && startupNotices.length === 0
+      && events[index - 1]?.type === 'thread.started' && event.type === 'item.completed'
+      && event.item?.type === 'error' && event.item.message === codeModeDisabledNotice) {
+      startupWarnings++;
+      startupNotices.push({code: 'CODE_MODE_DISABLED_PRE_TURN', event_index: index,
+        cli_version: context.cli_version, reason: 'exact_notice_with_explicit_disabled_features', message: event.item.message});
+      return false;
+    }
     // Observed CLI 0.154.0-alpha.6.2 startup notice, emitted before any model turn.
     // It is neither a failed turn nor a tool call; every other error item remains rejected.
     if (!turnStarted && event.type === 'item.completed' && event.item?.type === 'error'
@@ -28,6 +57,9 @@ export function auditCodexEvents(stream) {
   });
   return { events, unexpected_count: unexpected.length,
     startup_warning_count: startupWarnings,
+    startup_notice_count: startupNotices.length, startup_notices: startupNotices,
+    controlled_disabled_context: controlledDisabled,
+    unexpected_tool_count: unexpected.filter(event => typeof event?.type === 'string' && event.type.startsWith('item.') && event.item && event.item.type !== 'error').length,
     turn_completed: events.some(event => event?.type === 'turn.completed'),
     failed: events.some(event => ['turn.failed', 'error'].includes(event?.type)) };
 }

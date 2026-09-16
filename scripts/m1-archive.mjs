@@ -163,6 +163,7 @@ export async function completeAttempt(runDir, attemptId, info) {
     execution_mode: info.execution_mode ?? 'unknown', raw_output_sha256,
     model_thread_id: info.model_thread_id ?? null, unexpected_tool_events: info.unexpected_tool_events ?? [],
     turn_completed: info.turn_completed ?? null, timed_out: info.timed_out ?? false, cli_exit_code: info.cli_exit_code ?? info.exit_code,
+    ...(info.event_audit ? {event_audit: info.event_audit} : {}),
   };
   await writeOnce(join(directory, 'receipt.json'), receipt);
   return receipt;
