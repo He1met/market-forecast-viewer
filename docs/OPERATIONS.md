@@ -16,15 +16,18 @@
 
 在本地填好安装配置并保留 forecast_paused、ops_paused、service_paused=true。backup.target 必须已经存在且在生产数据与运行目录之外；记录实际 device_id，未挂载或身份变化将拒绝备份，不创建替代目录。绝对本机路径只进入 installation.local.json。
 
-开发管理入口（参数以本地实际路径代入）：
+开发管理入口（参数以本地实际绝对路径和完整 SHA/ID 代入；先取得精确批准）：
 
 ```sh
+npm run m1:release -- --commit FULL_COMMIT_SHA --destination ABSOLUTE_NEW_PACKAGE
 node --import tsx scripts/m1-admin.mjs verify PACKAGE
 node --import tsx scripts/m1-admin.mjs stage PACKAGE RUNTIME_HOME
-node --import tsx scripts/m1-admin.mjs activate RUNTIME_HOME RELEASE_ID APPROVAL_JSON CONFIG_JSON
+MFV_RUNTIME_HOME="RUNTIME_HOME" npm run m1:deploy -- --release RELEASE_ID --approval ABSOLUTE_APPROVAL_JSON --config ABSOLUTE_CONFIG_JSON
 ```
 
-stage 只复制候选；activate 在业务互斥下要求展示服务已停止，保存旧指针、批准记录、稳定 launcher，并切为暂停配置。审批材料不能由实施者虚构。安装后的稳定入口为：
+stage 只复制候选。推荐公开 m1:deploy：它在业务互斥内校验批准、配置、旧档兼容与目标包，并在固定本机端口执行切换前 HTTP health/runtime/page 检查；检查结束停止自有探测进程，成功状态为 activated_paused，不是持续服务或安装入口端到端验收。首次无投影明确 not_initialized，坏投影拒绝。底层 m1-admin activate 默认没有 healthCheck，不能以其成功替代 HTTP 验收，也不作为日常部署示例。
+
+安装要求展示服务已停止，保留三项暂停；安装 pending 事务门禁和显式恢复协议保护中断现场，三文件不是整体原子事务。未知字节不覆盖；历史无门禁 launcher 需单独受控迁移。审批材料不能由实施者虚构。安装后的稳定入口为：
 
 ```sh
 node RUNTIME_HOME/launch.mjs RUNTIME_HOME doctor
@@ -41,7 +44,7 @@ launcher 每轮只读取一次 current；运行中不重新选择版本。foreca
 
 已持有端口但不健康的服务不会被自动杀掉；保留日志并报告。服务暂停与预测暂停独立。自动调度全部停止期间不能承诺实时故障通知。
 
-rollback RUNTIME_HOME 只回到 previously approved 的旧 release，仍要求先停止自己的服务并保持业务暂停；旧证据不删除，恢复后重新核验 health/release/旧档回放，再由维护者决定恢复业务。
+回退使用 `MFV_RUNTIME_HOME="RUNTIME_HOME" npm run m1:rollback -- --release PREVIOUS_RELEASE_ID`；底层参数为 `rollback RUNTIME_HOME PREVIOUS_RELEASE_ID`。精确目标必须是 previously approved 的旧 release，锁内用目标 reader 校验现存原档兼容性后才切指针，仍要求先停止自己的服务并保持业务暂停；旧证据不删除，恢复后重新核验 health/release/旧档回放，再由维护者决定恢复业务。首次安装没有已批准 previous release，实机回退为 NOT_AVAILABLE，不能报 PASS。
 
 ## 备份与恢复
 
@@ -55,7 +58,7 @@ forecast/ops/backup 的独立 started/result 记录包含真实 MFV_TRIGGER、MF
 
 ## 交付状态
 
-安装版 `npm run m1:doctor` 默认只读：返回精确包/三根路径/暂停意图、固定大小的最新预测/巡检/备份记录与学习控制、任务意图及被动业务互斥探测。设置 `MFV_RUNTIME_HOME` 指向已批准安装；也可执行 `node RUNTIME_HOME/launch.mjs RUNTIME_HOME doctor`。每个状态文件最多1MiB，缺失为unknown、坏档/超限/软链接为unreadable；历史记录不冒充本次验档，版本内任务意图不冒充官方当前任务回读。诊断包含本机路径，只能LOCAL_ONLY。当前备份观察链尚待补齐，缺失备份记录仍为unknown。
+安装版 `npm run m1:doctor` 默认只读：返回精确包/三根路径/暂停意图、固定大小的最新预测/巡检/备份记录与学习控制、任务意图及被动业务互斥探测。设置 `MFV_RUNTIME_HOME` 指向已批准安装；也可执行 `node RUNTIME_HOME/launch.mjs RUNTIME_HOME doctor`。每个状态文件最多1MiB，缺失为unknown、坏档/超限/软链接为unreadable；历史记录不冒充本次验档，版本内任务意图不冒充官方当前任务回读。诊断包含本机路径，只能LOCAL_ONLY。备份观察链已接通独立结果、锁内最近尝试及完整成功摘要；未实际运行或缺失备份记录仍为unknown。
 
 显式 `npm run m1:doctor -- --full-audit`（或稳定启动器末尾加`--full-audit`）才遍历正式/候选原档与案例，重读最新核对及其引用capture、重算案例，不补采、不创建评分revision、不更新索引、不调用模型。历史全部revision不在此次范围，`historical_revisions_audited=false`；不称所有历史评分已通过。最新核对的failed/未知评分会计入失败，即使显示读取器未抛异常；合法not_evaluated单独计数，available记录中的部分观测/缺数据不当成坏档。30秒协作式预算仅在文件操作之间检查；预算耗尽/清单不可读为incomplete，损坏/不可资格化对象为failed，两者均打印JSON并退出2。该审计不是备份恢复演练，也不提供并发写入期间的事务快照。默认doctor不遍历原档；两种模式均不领取或恢复业务锁、不杀进程、不修文件。未知参数非0退出。
 
@@ -70,7 +73,7 @@ ops每日UTC基线的 `filesystem_used_delta_bytes` 是整个文件系统的用�
 
 ## 官方任务通知摘要
 
-安装批准后，`node RUNTIME_HOME/launch.mjs RUNTIME_HOME notifications` 只读三个告警流，返回最近20条待发送历史事件、总数/省略数、全事件集合的稳定 `event_set_id`、记录的最后发布时间及一个核对动作。不会预测、联网、争业务写锁或改变告警送达状态；即使业务暂停也可读取。最后发布时间仅来自已记录摘要，不代表本次重新验档。跨流读取不是一致性事务快照；后续读取会看到新提交。
+安装批准后，`node RUNTIME_HOME/launch.mjs RUNTIME_HOME notifications` 只读结果、执行、容量和服务四个告警流，返回最近20条待发送历史事件、总数/省略数、全事件集合的稳定 `event_set_id`、记录的最后发布时间及一个核对动作。不会预测、联网、争业务写锁或改变告警送达状态；即使业务暂停也可读取。最后发布时间仅来自已记录摘要，不代表本次重新验档。跨流读取不是一致性事务快照；后续读取会看到新提交。
 
 官方业务任务执行自己的入口后可读取此摘要，按事件集合ID与任务memory中已呈现的ID比较：只对新事件集合呈现一次简短异常/恢复摘要，保留历史事件时间和省略数；重复集合保持安静。保存的“已呈现”只能用于消息去重，不能写成delivered，也不能丢弃outbox。发送不确定时记录unknown，不盲目重复。禁止把原始错误、路径、输入输出拼进公开通知。摘要读取失败必须记不可用，不能当成无告警。
 

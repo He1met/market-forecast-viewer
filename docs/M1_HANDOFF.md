@@ -2,9 +2,11 @@
 
 ## 当前结论
 
-本表为 Issue15 的交付准备，不是维护者批准。核对基线为 `8f291dd73a86da273266cc47a94c1ab98c278f85`，PR #7，分支 `feat/chart-mvp`。工程仍为 IN_PROGRESS；安装版真实单轮、自然运行、方法效果分别为 NOT_VERIFIED。后续提交或配置变化必须重新绑定对应证据。
+本表为 Issue15 的交付准备，不是维护者批准。代码审查基线为 `27699ffdacaedfbc1820f40bccfa52150b2769fa`，PR #7，分支 `feat/chart-mvp`。独立审查确认 FINAL-01 的具名维护入口缺口为 CODE_FIXED_REVIEWED，FINAL-02..06 为 FIXED_VERIFIED，原六项代码问题已解决；最终交付与运行验收未完成。安装版真实单轮、自然运行、方法效果分别为 NOT_VERIFIED。本次文档修订属于后续增量，其提交、CI及候选包需重新绑定，不能沿用上述 SHA 的批准。
 
-本轮读取上一片七个文件及两份 completed 收据，SHA 均匹配；没有重跑已通过的业务测试。上一片 CI 为 `34993247785`，四项成功。局部审查 LOCAL_SLICE_PASSED 不等于最终全方案验收。原始证据、任务正文快照及安装绝对路径仅 LOCAL_ONLY。
+该代码基线 CI `35059135212` 的 quality、runtime-package、browser、ci-required 四项成功。独立审查核对171个跟踪文件、676个候选清单文件、manifest/source archive/保全哈希匹配，未重跑测试。候选 release `beea1a27392f3948c532ceb276e7d11c27622be66e53debab79ca17c18948983` 为 non-synthetic / darwin arm64 / Node22，尚未批准或安装；此处仅记录修订前候选，后续精确身份在 LOCAL_ONLY 交付收据中重新绑定。
+
+原 tar 含719个 AppleDouble 元数据普通文件，另有677个真实payload文件（含manifest）；原档保留，不能称为直接可移植恢复包。已另产无扩展元数据的便携tar，在新隔离目录解包后只读 verifyPackage 确认精确676文件加manifest，未放松文件集合校验。最终新候选同样需要独立便携保全及解包验档。原始证据、任务正文快照及安装绝对路径仅 LOCAL_ONLY。
 
 ## 调度现状与目标差异
 
@@ -25,11 +27,11 @@
 
 ### 预测任务
 
-读取本自动化 memory 和已核验安装收据，仅在收据绑定的 RUNTIME_HOME 工作。核对稳定启动器、current release 与维护者精确批准；身份或路径不一致停止并保留证据。只执行 `MFV_TRIGGER=scheduled node RUNTIME_HOME/launch.mjs RUNTIME_HOME forecast`；人工试跑改用 manual，记录真实任务ID、CODEX_THREAD_ID及实际触发，缺身份不编造。不得执行开发、Git、模型替代回答或独立prepare/generate，也不得重复调用脚本重抽预报。有限重试和slot由脚本负责。读取结构化结果，分别保存old_results与新预报状态；迟到、缺数、失败不填零。暂停或锁忙安静结束，不清锁、不停止未知进程。异常中断保留实际进程身份与恢复信息。完成后按下述通知规则读取摘要并更新memory。不得修改代码、安装指针、批准文件、原始档案或其他任务。
+读取本自动化 memory 和已核验安装收据，仅在收据绑定的 RUNTIME_HOME 工作。核对稳定启动器、current release 与维护者精确批准；身份或路径不一致停止并保留证据。只执行 `MFV_TRIGGER=scheduled MFV_TASK_ID=REAL_TASK_ID node RUNTIME_HOME/launch.mjs RUNTIME_HOME forecast`；人工试跑改用 manual，记录真实任务ID、CODEX_THREAD_ID及实际触发，缺身份不编造。不得执行开发、Git、模型替代回答或独立prepare/generate，也不得重复调用脚本重抽预报。有限重试和slot由脚本负责。读取结构化结果，分别保存old_results与新预报状态；迟到、缺数、失败不填零。暂停或锁忙安静结束，不清锁、不停止未知进程。异常中断保留实际进程身份与恢复信息。完成后按下述通知规则读取摘要并更新memory。不得修改代码、安装指针、批准文件、原始档案或其他任务。
 
 ### 巡检任务
 
-读取本自动化 memory 和已核验安装收据，仅在收据绑定的 RUNTIME_HOME 工作。核对稳定启动器、current release 与维护者精确批准；不一致停止并保留证据。只执行 `MFV_TRIGGER=scheduled node RUNTIME_HOME/launch.mjs RUNTIME_HOME ops`，人工试跑用 manual，并记录真实任务/线程/触发。读取结构化状态及未完成游标；partial不写成completed。不得调用预测模型、修改源码/提示词、操作Git、清理未知锁或进程。程序负责有界补核对、案例/比较、附加输入、索引和已确认自有服务恢复；不在脚本之外重复重试。按下述通知规则读取摘要并更新memory。暂停或锁忙安静结束；不得解除业务或服务暂停。
+读取本自动化 memory 和已核验安装收据，仅在收据绑定的 RUNTIME_HOME 工作。核对稳定启动器、current release 与维护者精确批准；不一致停止并保留证据。只执行 `MFV_TRIGGER=scheduled MFV_TASK_ID=REAL_TASK_ID node RUNTIME_HOME/launch.mjs RUNTIME_HOME ops`，人工试跑用 manual，并记录真实任务/线程/触发。读取结构化状态及未完成游标；partial不写成completed。不得调用预测模型、修改源码/提示词、操作Git、清理未知锁或进程。程序负责有界补核对、案例/比较、附加输入、索引和已确认自有服务恢复；不在脚本之外重复重试。按下述通知规则读取摘要并更新memory。暂停或锁忙安静结束；不得解除业务或服务暂停。
 
 ### 备份任务
 
@@ -37,7 +39,7 @@
 
 ### 三项任务共用通知规则（应用时拼入各正文）
 
-自身入口结束后，只读执行 `node RUNTIME_HOME/launch.mjs RUNTIME_HOME notifications`。将event_set_id与本任务memory已呈现集合比较，仅新异常、恢复或必要行动呈现摘要，包含事件时间、总数/省略数、最近记录的发布时间和一个核对动作。未知读取失败单独去重，不能当作没有告警。相同集合、暂停、锁忙及无变化保持安静。完整错误、路径和价格数据不进入公开通知；原始结果保持LOCAL_ONLY。保存结果为“已呈现”或“呈现未知”，不得标为delivered，不清空pending outbox。逐条送达回执尚不可得；本任务间去重仅各自memory范围，不能承诺跨任务只通知一次。
+自身入口结束后，只读执行 `node RUNTIME_HOME/launch.mjs RUNTIME_HOME notifications`，汇总结果、执行、容量和服务四流。将event_set_id与本任务memory已呈现集合比较，仅新异常、恢复或必要行动呈现摘要，包含事件时间、总数/省略数、最近记录的发布时间和一个核对动作。未知读取失败单独去重，不能当作没有告警。相同集合、暂停、锁忙及无变化保持安静。完整错误、路径和价格数据不进入公开通知；原始结果保持LOCAL_ONLY。保存结果为“已呈现”或“呈现未知”，不得标为delivered，不清空pending outbox。逐条送达回执尚不可得；本任务间去重仅各自memory范围，不能承诺跨任务只通知一次。
 
 官方任务支持收件箱呈现，实际可见性仍需首次正式运行验收：[Scheduled tasks](https://learn.chatgpt.com/docs/automations?surface=app)。
 
@@ -45,9 +47,9 @@
 
 | 材料 | 当前证据与限制 | 完成条件 |
 | --- | --- | --- |
-| 代码与CI | 基线上一片quality/package通过，CI四项成功 | 最终冻结SHA的完整必要验证与独立全方案审查，无未决阻塞 |
-| 候选包 | 有隔离合成包测试；不是正式候选安装回执 | 精确提交导出候选包，记录release_id、manifest/source/依赖SHA、平台与node；核验源码闭包 |
-| 安装配置 | 正式路径/备份设备与端口未在本表确证 | LOCAL_ONLY真实三根路径、设备身份、容量、模型、暂停状态和配置SHA；核验路径隔离 |
+| 代码与CI | 上述精确代码基线四项CI成功，六项具名代码缺口已审查解决 | 本文档增量正常提交、CI及独立增量复核，最终状态绑定新SHA |
+| 候选包 | 上述非synthetic候选676项验档通过；便携保全677文件已解包复验；不是安装回执 | 从文档增量的精确提交重建并核验新release/manifest/source/依赖身份及便携保全 |
+| 安装配置 | 2026-09-16 06:04 UTC只读检查：拟定runtime/data根尚不存在，5178/5179无监听（未预留）；同盘local-recovery | LOCAL_ONLY配置SHA为 `3007f7613b8bb1b97c331f022da3014ebda6e88266e4e85e084d681fd8adf3cd`；激活前复核根/设备/容量/端口，保持三项暂停并绑定精确批准；尚未建根/迁档 |
 | 调度 | 上表为实际差异；两个新任务尚未配置 | 官方创建/修改及回读ID、正文SHA、Local目录、状态；预计未来三次上海/UTC时点与官方返回值分别记实 |
 | 通知 | 只读摘要/去重逻辑测试通过，pending保留 | 官方任务首次摘要实际可见；若无送达回执继续UNKNOWN，不改写delivered |
 | 真实单轮 | 安装版未验证；旧版本历史结果不能替代 | 批准后manual安装入口，真实冻结/生成/归档/HTTP可见及成熟核对绑定同release |
@@ -62,4 +64,6 @@
 
 回退只使用此前批准且兼容现有原档的release，保留业务暂停，停止已确认自有服务，调用管理rollback，再核验health/release/旧档；不删除新原档。若从未有已批准安装版，previous_release不存在，必须明确没有可用安装版回退目标。
 
-唯一下一步：独立核对本材料及调度差异，继续准备精确候选包/安装参数并完成全方案工程审查。本表的缺项仍属交付工作，不提前请求用户泛化批准。
+维护者决定材料须明确：精确提交及release/manifest、配置SHA、原批准来源和安装目标；批准范围分别列出合并、正式激活、受控service/manual验证及其后恢复哪些职责。默认激活后forecast/ops/service均暂停；只在获准的验证步骤临时启用对应项并保存回执，结束恢复暂停。自然业务启用仍需真实单轮技术条件与任务配置回读；不把代码审查当成恢复运行批准。首次 previous rollback 为 NOT_AVAILABLE；备份仍只承诺同盘恢复。
+
+唯一下一步：完成本文档增量的提交/CI/候选身份重绑定与独立复核，形成精确维护者决定材料；正式激活、持续服务、安装入口验档/备份恢复、manual真实单轮留待精确确认后执行。未来两期scheduled及方法效果仍需真实时间与新数据，不能提前报通过。
