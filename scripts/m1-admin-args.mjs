@@ -1,6 +1,10 @@
 import path from 'node:path';
 import {check} from './m1-files.mjs';
 export function learningArguments(args) {
+ if(args[0]==='plan-input'){
+  check(args.length===7&&args[1]==='--input'&&['derivatives','calendar'].includes(args[2])&&args[3]==='--policy-sha'&&/^[a-f0-9]{64}$/.test(args[4]??'')&&args[5]==='--reason'&&typeof args[6]==='string'&&args[6].trim().length>0&&args[6].length<=2000,'LEARNING_ARGUMENTS_INVALID');
+  return {action:'plan-input',input:args[2],policySha:args[4],reason:args[6].trim()};
+ }
  check(args.length===3&&args[0]==='disable'&&args[1]==='--reason'&&typeof args[2]==='string'&&args[2].trim().length>0&&args[2].length<=2000,'LEARNING_ARGUMENTS_INVALID');
  return {reason:args[2].trim()};
 }

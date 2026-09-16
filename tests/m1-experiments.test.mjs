@@ -12,7 +12,7 @@ test('registered first-20 decision takes effect only later; shadow allows one ro
 test('decision transition recovers every write boundary without rescoring or duplicate rollback plans',async t=>{
  const OriginalDate=Date;let now=OriginalDate.parse('2026-01-01T00:00:00Z');globalThis.Date=class extends OriginalDate{constructor(...args){super(...(args.length?args:[now]));}static now(){return now;}};t.after(()=>{globalThis.Date=OriginalDate;});
  const baseline={predictor_version:'SYNTHETIC',model:'SYNTHETIC',reasoning_effort:'medium',additional_inputs:'none',feedback:'F0',lambda:0},candidate={...baseline,feedback:'F1'},guard=async()=>{};
- for(const kind of ['promote','reject','insufficient_evidence','rollback'])for(const boundary of ['intent','decision','policy',...(kind==='promote'?['rollback_plan']:[]),'active','completed']){
+ for(const kind of ['promote','reject','insufficient_evidence','rollback'])for(const boundary of ['intent','decision','decision_commit','policy',...(kind==='promote'?['rollback_plan']:[]),'active','completed']){
   const root=await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()),'mfv-transition-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));now=OriginalDate.parse('2026-01-01T00:00:00Z');
   let crashed=false;const store=experimentStore(root,{afterTransitionWrite:async name=>{if(name===boundary&&!crashed){crashed=true;throw Error('INJECTED:'+name);}}});const plan=await store.create(baseline,candidate,{guard,phase:kind==='rollback'?'rollback':'forward'});
   const count=kind==='insufficient_evidence'?30:20;
@@ -50,4 +50,29 @@ test('registration, frozen candidate, budget skip and actual interrupted attempt
  }
  now+=86400000;
  const result=await store.review({guard,readMetrics:async()=>null});assert.equal(result.decision,'insufficient_evidence');assert.equal(result.registered,30);assert.equal(result.finished,30);assert.equal(result.started,27);assert.equal(result.complete_pairs,0);
+});
+
+test('policy change pauses the experiment before any slot registration or scoring and preserves originals',async t=>{
+ const root=await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()),'mfv-policy-pause-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));
+ const guard=async()=>{},store=experimentStore(root),control={model:'SYNTHETIC',additional_inputs:'none',feedback:'F0'},plan=await store.create(control,{...control,feedback:'F1'},{guard});
+ const file=path.join(root,'m1-experiments',plan.id,'plan.json'),before=await fs.readFile(file);
+ assert.equal(await store.register({slot_id:'off-calendar',anchor_time:0},{...control,additional_inputs:'calendar'},{guard}),null);
+ assert.equal(await store.active(),null);assert.equal(await store.paused(),true);const state=await fs.readFile(path.join(root,'m1-experiments/active.json'));
+ assert.equal(await store.register({slot_id:'retry',anchor_time:0},control,{guard}),null);
+ assert.equal(await store.review({policy:control,guard,readMetrics:async()=>{throw Error('must not score');}}),null);
+ assert.deepEqual(await fs.readFile(file),before);assert.deepEqual(await fs.readFile(path.join(root,'m1-experiments/active.json')),state);
+ await assert.rejects(()=>fs.stat(path.join(root,'m1-experiments',plan.id,'opportunities')),/ENOENT/);
+ await assert.rejects(()=>store.create(control,{...control,additional_inputs:'calendar'},{guard,factor:'input'}),/EXPERIMENT_PAUSED/);
+ await fs.mkdir(path.join(root,'other'));const other=experimentStore(path.join(root,'other'));const next=await other.create(control,{...control,additional_inputs:'calendar'},{guard,factor:'input'});
+ const decision=await other.review({policy:{...control,model:'SYNTHETIC_NEW'},guard,readMetrics:async()=>{throw Error('must not score');}});
+ assert.equal(decision.decision,'paused_version_changed');assert.equal(decision.id,next.id);
+});
+
+test('changed approved generation uses release baseline without erasing prior policy evidence; corruption still fails',async t=>{
+ const root=await fs.mkdtemp(path.join(await fs.realpath(os.tmpdir()),'mfv-policy-baseline-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));
+ const {atomic,digest,canonical}=await import('../scripts/m1-files.mjs');const baseline={model:'new',predictor_version:'new',reasoning_effort:'medium',additional_inputs:'none',feedback:'F0',lambda:0},old={...baseline,model:'old',feedback:'F1'},id='11111111-1111-1111-1111-111111111111';
+ const decision={production_config:old};await atomic(root,path.join(root,'m1-experiments',id,'decision.json'),decision);
+ const file=path.join(root,'m1-learning/production-policy.json');await atomic(root,file,{schema:'MFV:PRODUCTION_POLICY:v1',decision_id:id,decision_hash:digest(canonical(decision)),policy:old,effective_after:'2020-01-01T00:00:00Z'});const before=await fs.readFile(file);
+ assert.deepEqual(await effectivePolicy(root,baseline),baseline);assert.deepEqual(await fs.readFile(file),before);
+ await atomic(root,path.join(root,'m1-experiments',id,'decision.json'),{production_config:baseline});await assert.rejects(()=>effectivePolicy(root,baseline),/POLICY_DECISION_CHANGED/);
 });

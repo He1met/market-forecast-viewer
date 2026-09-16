@@ -26,3 +26,12 @@ test('old-result fallback is bounded, shares writer, and preserves failure indep
  assert.equal((await cycle(options)).reason,'duplicate_slot');assert.equal(fallbackCalls,1);assert.equal(freezeCalls,1);
  const released=await businessMutex({dataRoot:root,port,releaseId:'after'});assert.equal(released.status,'ACQUIRED');await released.close();
 });
+
+test('experiment policy mismatch pauses candidate but still completes production publication',async t=>{
+ const {experimentStore}=await import('../scripts/m1-experiments.mjs');const {root,port}=await fixture(t),store=experimentStore(root),old={feedback:'F0',additional_inputs:'none'},current={...old,additional_inputs:'calendar'};
+ await store.create(old,{...old,feedback:'F1'},{guard:async()=>{}});let generated=0;
+ const result=await cycle({dataRoot:root,mutexPort:port,releaseId:'SYNTHETIC',clock:()=>Date.parse('2026-09-15T17:47:00Z'),resolvePolicy:async()=>current,
+ registerOpportunity:(slot,options)=>store.register(slot,options.policy,options),prepareCandidate:async registration=>{assert.equal(registration,null);return null;},
+ freeze:async({policy})=>{assert.deepEqual(policy,current);return{};},generate:async()=>{generated++;return{forecast:{run_id:'SYNTHETIC'}};},publishIndex:async()=>{}});
+ assert.equal(result.status,'completed');assert.equal(generated,1);assert.equal(await store.paused(),true);
+});

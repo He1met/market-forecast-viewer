@@ -66,6 +66,8 @@
     "scripts/m1-deploy-health.mjs",
     "scripts/m1-install-commit.mjs",
     "scripts/m1-install-protocol.mjs",
-    "scripts/m1-backup-cycle.mjs"
+    "scripts/m1-backup-cycle.mjs",
+    "scripts/m1-input-plan.mjs",
+    "scripts/m1-experiment-proof.mjs"
   ]
 }

@@ -2,7 +2,8 @@
 import fs from'node:fs/promises';import path from'node:path';import{spawn}from'node:child_process';
 const home=path.resolve(process.argv[2]??''),command=process.argv[3];
 const args=process.argv.slice(4);
-const learning=command==='learning'&&args.length===3&&args[0]==='disable'&&args[1]==='--reason'&&args[2].trim().length>0&&args[2].length<=2000;
+const inputPlan=command==='learning'&&args.length===7&&args[0]==='plan-input'&&args[1]==='--input'&&['derivatives','calendar'].includes(args[2])&&args[3]==='--policy-sha'&&/^[a-f0-9]{64}$/.test(args[4]??'')&&args[5]==='--reason'&&args[6].trim().length>0&&args[6].length<=2000;
+const learning=inputPlan||command==='learning'&&args.length===3&&args[0]==='disable'&&args[1]==='--reason'&&args[2].trim().length>0&&args[2].length<=2000;
 if(args.length&&!learning&&!(command==='doctor'&&args.length===1&&args[0]==='--full-audit'))throw Error('LAUNCH_ARGUMENTS_INVALID');
 if(!path.isAbsolute(process.argv[2]??'')||!['forecast','ops','serve','doctor','backup','pause','resume','notifications','learning'].includes(command))throw Error('LAUNCH_ARGUMENTS_INVALID');
 if(command==='learning'&&!learning)throw Error('LAUNCH_ARGUMENTS_INVALID');

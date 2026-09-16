@@ -1,3 +1,4 @@
+import {readExperimentMetrics} from './m1-experiment-proof.mjs';
 import {serviceAlertCondition} from './m1-service.mjs';
 import {observeCapacity} from './m1-capacity.mjs';
 import {collectExecutionObservations} from './m1-observation-alerts.mjs';
@@ -86,9 +87,9 @@ export async function ops({codeRoot,dataRoot,port,releaseId,policy,trigger='manu
    processed+=batch.visited;outcomes.push(...batch.outcomes);unresolved.push(...batch.unresolved);
   }
   let decision=recoveredDecision;
-  if(performance.now()-start<100000){await guard();decision=recoveredDecision??((await caseStore({codeRoot,dataRoot}).controls()).learning_disabled?{decision:'paused_learning_disabled'}:await experiment.review({guard,readMetrics:async(id,role)=>{try{const run=await readers[role].readRun(id),f=run.forecast,e=run.evaluation.status==='available'?run.evaluation.result.windows.h24:null,main=mainScenario(f.scenarios.map(x=>x.probability_24h));return{valid:f.status==='valid',timely:Date.parse(f.published_at)<(f.anchor_time+900)*1000,started_at:f.generation_started_at,complete:e?.status==='mature',brier:e?.brier_score??null,path_loss:e?.scenario_errors.find(x=>x.id===main).mae_return_pct??null};}catch{return null;}}}));
+  if(performance.now()-start<100000){await guard();if(policy)policy=await effectivePolicy(dataRoot,policy);decision=recoveredDecision??((await caseStore({codeRoot,dataRoot}).controls()).learning_disabled?{decision:'paused_learning_disabled'}:await experiment.review({guard,policy,readMetrics:async(id,role)=>{try{return await readExperimentMetrics({codeRoot,dataRoot},id,role);}catch{return null;}}}));
    if(policy)policy=await effectivePolicy(dataRoot,policy);
-   if(capacity.current.optional_work==='allowed'&&policy&&!await experiment.active()){
+   if(capacity.current.optional_work==='allowed'&&policy&&await experiment.creationStatus()==='allowed'){
     const control=await caseStore({codeRoot,dataRoot}).controls();
     if(!control.learning_disabled){const cutoff=new Date().toISOString(),cases=await caseStore({codeRoot,dataRoot}).available(cutoff),used=new Set();
      for(const id of await fs.readdir(path.join(dataRoot,'m1-experiments')).catch(e=>{if(e.code==='ENOENT')return[];throw e;})){if(!/^[a-f0-9-]{36}$/.test(id))continue;const file=path.join(dataRoot,'m1-experiments',id,'plan.json');if(await exists(file))used.add((await readJson(dataRoot,file)).factor);}

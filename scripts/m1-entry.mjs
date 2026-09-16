@@ -1,3 +1,4 @@
+import {planInputExperiment} from './m1-input-plan.mjs';
 import {backupCycle} from './m1-backup-cycle.mjs';
 import {learningArguments} from './m1-admin-args.mjs';
 import {assertInstallationSettled} from './m1-files.mjs';
@@ -17,6 +18,7 @@ export async function entry(command,home,releaseId,args=[]){
  const invocation={trigger:process.env.MFV_TRIGGER??'manual',taskId:process.env.MFV_TASK_ID??null,threadId:process.env.CODEX_THREAD_ID??null};
  const readCapacity=()=>capacitySnapshot(config.data_root,{policy:config.capacity});
  const approval=await readJson(home,path.join(home,'approvals',releaseId+'.json'));check(manifest.synthetic!==true&&approval.schema==='MFV:MAINTAINER_APPROVAL:v1'&&approval.release_id===releaseId&&approval.build_sha===manifest.build_sha&&approval.approved===true&&/^https:\/\/github\.com\/He1met\/market-forecast-viewer\/(?:pull|issues)\//.test(approval.source_url)&&Number.isFinite(Date.parse(approval.approved_at)),'RELEASE_NOT_APPROVED');
+ if(command==='learning'&&args[0]==='plan-input')return planInputExperiment({runtimeHome:home,dataRoot:config.data_root,port:config.mutex_port,releaseId,codeRoot,baseline:policy,...learningArguments(args)});
  if(command==='learning')return disableLearning({runtimeHome:home,dataRoot:config.data_root,port:config.mutex_port,releaseId,...learningArguments(args)});
  if(['pause','resume'].includes(command))return setForecastPaused({runtimeHome:home,releaseId,paused:command==='pause'});
  const readForecastControl=async()=>{const fresh=await validateInstallation(path.join(home,'installation.local.json'));check(fresh.data_root===config.data_root&&fresh.mutex_port===config.mutex_port,'INSTALLATION_CHANGED');return{paused:fresh.forecast_paused!==false,expectedSince:fresh.forecast_expected_since??null};};

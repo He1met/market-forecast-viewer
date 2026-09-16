@@ -338,3 +338,37 @@ await ops(options);const summary=await notificationSummary(data);assert.equal(su
 console.log(JSON.stringify({status:'passed',service_alert_integration:true,unknown_listener_preserved:true,delivery_verified:false}));
 }finally{await new Promise(r=>server.close(r));}
 `],{cwd:target,encoding:'utf8',env:{...process.env,NODE_PATH:'',MFV_DATA_ROOT:path.join(e.evidence_root,'synthetic-service-alert')},timeout:30000}).trim());
+
+// Real synthetic forward archive/score/decision pipeline, not a hand-written summary.
+const inputPlanCheck=execFileSync(process.execPath,['--import','tsx','--input-type=module','-e',`
+import assert from 'node:assert/strict';import fs from 'node:fs/promises';import path from 'node:path';import net from 'node:net';import {pathToFileURL} from 'node:url';
+import {planInputExperiment} from './scripts/m1-input-plan.mjs';import {verifyFeedbackDecision} from './scripts/m1-experiment-proof.mjs';
+import {learningArguments} from './scripts/m1-admin-args.mjs';import {atomic,readJson} from './scripts/m1-files.mjs';
+const {withFeedbackFixture}=await import(pathToFileURL(process.env.MFV_FORWARD_FIXTURE).href);
+const data=process.env.MFV_DATA_ROOT,home=process.env.MFV_RUNTIME_HOME;await fs.mkdir(home,{recursive:true});
+const socket=net.createServer();await new Promise(r=>socket.listen(0,'127.0.0.1',r));const port=socket.address().port;await new Promise(r=>socket.close(r));
+const releaseId='b'.repeat(64),config={schema:'MFV:INSTALLATION:v1',runtime_home:home,data_root:data,http_port:port===65535?port-1:port+1,mutex_port:port,forecast_paused:true,ops_paused:true,service_paused:true};
+await atomic(home,path.join(home,'installation.local.json'),config);await atomic(home,path.join(home,'current.json'),{release_id:releaseId});
+await withFeedbackFixture({codeRoot:process.cwd(),dataRoot:data,fixtureRoot:process.env.MFV_FIXTURE_ROOT},async({store,plan,decision,baseline,pairs,advance,digest,canonical})=>{
+ const verify=()=>verifyFeedbackDecision({codeRoot:process.cwd(),dataRoot:data,plan,decision});assert.equal((await verify()).pair_ids.length,20);
+ const dir=path.join(data,'m1-experiments',plan.id),marker=path.join(dir,'decision-commit.json'),originalMarker=await fs.readFile(marker);
+ await fs.writeFile(marker,'{}');await assert.rejects(verify,/FEEDBACK_DECISION_BINDING_INVALID/);await fs.writeFile(marker,originalMarker);
+ await assert.rejects(()=>verifyFeedbackDecision({codeRoot:process.cwd(),dataRoot:data,plan:{...plan,training_cutoff:'changed'},decision}),/FEEDBACK_DECISION_BINDING_INVALID/);
+ await assert.rejects(()=>verifyFeedbackDecision({codeRoot:process.cwd(),dataRoot:data,plan,decision:{...decision,complete_pairs:21}}),/FEEDBACK_DECISION_BINDING_INVALID/);
+ const registered=path.join(pairs[0].registration.dir,'registered.json'),bytes=await fs.readFile(registered);await fs.unlink(registered);await assert.rejects(verify,/ENOENT/);await fs.writeFile(registered,bytes);
+ const revisionFile=path.join(data,'m1-outcomes',pairs[0].official.run_id,'evaluations',pairs[0].scored.production.revision_id,'manifest.json'),revisionBytes=await fs.readFile(revisionFile),revision=JSON.parse(revisionBytes);
+ await fs.writeFile(revisionFile,JSON.stringify({...revision,evaluation_code_sha256:'0'.repeat(64)}));await assert.rejects(verify);await fs.writeFile(revisionFile,revisionBytes);
+ const args=['plan-input','--input','calendar','--policy-sha',digest(canonical(baseline)),'--reason','SYNTHETIC controlled input comparison'];
+ const options={runtimeHome:home,dataRoot:data,port,releaseId,codeRoot:process.cwd(),baseline,...learningArguments(args)};
+ const result=await planInputExperiment(options);assert.equal(result.status,'planned');assert.equal(result.production_changed,false);assert.equal(result.model_called,false);assert.deepEqual(result.plan.candidate,{...baseline,additional_inputs:'calendar'});assert.ok(result.plan.training_evidence.case_ids.length>0);
+ await assert.rejects(()=>planInputExperiment(options),/EXPERIMENT_ALREADY_ACTIVE/);
+ // Mixed manual/automatic creation paths share the same allowance. Simulate a closed plan.
+ const activeFile=path.join(data,'m1-experiments/active.json'),active=await fs.readFile(activeFile);await atomic(data,activeFile,{id:result.plan.id,status:'decided'});
+ assert.equal(await store.creationStatus(),'DAILY_PLAN_LIMIT');await assert.rejects(()=>store.create(baseline,{...baseline,lambda:.1},{guard:async()=>{},factor:'probability'}),/DAILY_PLAN_LIMIT/);await fs.writeFile(activeFile,active);
+ await store.pauseChanged({...baseline,model:'SYNTHETIC_CHANGED'},{guard:async()=>{}});const paused=await fs.readFile(activeFile);advance(86400000);
+ await assert.rejects(()=>planInputExperiment({...options,input:'derivatives'}),/EXPERIMENT_PAUSED/);assert.deepEqual(await fs.readFile(activeFile),paused);
+ assert.deepEqual(await readJson(home,path.join(home,'installation.local.json')),config);
+ console.log(JSON.stringify({status:'passed',controlled_input_plan:true,real_synthetic_forward_pairs:20,exact_revision_replay:true,corrupt_prerequisites_rejected:true,shared_daily_limit:true,next_day_pause_preserved:true,official_activation:false,model_calls:0}));
+});
+`],{cwd:target,encoding:'utf8',env:{...process.env,NODE_PATH:'',MFV_RUNTIME_HOME:path.join(e.evidence_root,'synthetic-input-plan-home'),MFV_DATA_ROOT:path.join(e.evidence_root,'synthetic-input-plan-data'),MFV_FIXTURE_ROOT:dataRoot,MFV_FORWARD_FIXTURE:path.join(process.cwd(),'tests/fixtures/forward-feedback.mjs')},timeout:120000});
+console.log(inputPlanCheck.trim());

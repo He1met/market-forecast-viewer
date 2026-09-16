@@ -58,3 +58,19 @@ test('compatibility snapshot includes historical bytes and rejects symlinks',asy
  const before=await archiveSnapshot(f.data);await fs.writeFile(file,'changed');assert.notEqual((await archiveSnapshot(f.data)).sha256,before.sha256);
  await fs.symlink(f.home,path.join(f.data,'m1-candidates'));await assert.rejects(()=>archiveSnapshot(f.data),/SYMLINK_FORBIDDEN/);
 });
+
+test('input plan CLI requires bounded input, exact policy and reason; pinned state and prerequisite gates hold',async t=>{
+ const {planInputExperiment}=await import('../scripts/m1-input-plan.mjs');const {digest,canonical}=await import('../scripts/m1-files.mjs');
+ const f=await fixture(t),baseline={predictor_version:'SYNTHETIC',model:'SYNTHETIC',reasoning_effort:'medium',additional_inputs:'none',feedback:'F0',lambda:0};
+ const args=['plan-input','--input','calendar','--policy-sha',digest(canonical(baseline)),'--reason','controlled comparison'];
+ assert.equal(learningArguments(args).input,'calendar');
+ for(const bad of [args.slice(0,-1),[...args,'extra'],args.map(x=>x==='calendar'?'both':x),args.map(x=>x===args[4]?'HEAD':x)]){
+  assert.throws(()=>learningArguments(bad),/LEARNING_ARGUMENTS_INVALID/);const result=spawnSync(process.execPath,['runtime/launch.mjs',f.home,'learning',...bad],{encoding:'utf8'});assert.match(result.stderr,/LAUNCH_ARGUMENTS_INVALID/);
+ }
+ const options={...f.options,codeRoot:process.cwd(),baseline,...learningArguments(args)};
+ await assert.rejects(()=>planInputExperiment({...options,releaseId:'c'.repeat(64)}),/PINNED_RELEASE_MISMATCH/);
+ await assert.rejects(()=>planInputExperiment({...options,policySha:'0'.repeat(64)}),/INPUT_PLAN_POLICY_CHANGED/);
+ await assert.rejects(()=>planInputExperiment(options),/FEEDBACK_COMPARISON_REQUIRED/);
+ const controls=path.join(f.data,'m1-learning/controls.json');await atomic(f.data,controls,{learning_disabled:true});await assert.rejects(()=>planInputExperiment(options),/LEARNING_DISABLED/);
+ assert.equal((await readJson(f.home,path.join(f.home,'installation.local.json'))).forecast_paused,true);
+});

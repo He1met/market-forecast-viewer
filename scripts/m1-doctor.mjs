@@ -1,3 +1,5 @@
+import {effectivePolicy} from './m1-experiments.mjs';
+import {digest,canonical} from './m1-files.mjs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import net from 'node:net';
@@ -120,6 +122,7 @@ export async function doctor({codeRoot, config, manifest, fullAudit = false}) {
     backup: await recorded(data, 'm1-task-status/backup.json', attempt),
     last_backup_success: await recorded(data, 'm1-task-status/last-backup-success.json', attempt),
     learning: {
+      effective_policy: await (async()=>{try{check(manifest.policy?.policy,'POLICY_MISSING');const policy=await effectivePolicy(data,manifest.policy.policy);return{status:'verified',policy,sha256:digest(canonical(policy))};}catch{return{status:'unreadable',policy:null,sha256:null};}})(),
       controls: await recorded(data, 'm1-learning/controls.json', value => ({disabled: scalar(value.learning_disabled), effective_at: scalar(value.effective_at)})),
       strategy: await recorded(data, 'm1-learning/production-policy.json', value => {
         check(value.schema === 'MFV:PRODUCTION_POLICY:v1' && value.policy, 'POLICY_RECORD_INVALID');
