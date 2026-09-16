@@ -35,14 +35,27 @@ export async function setForecastPaused({runtimeHome,releaseId,paused,clock=()=>
   return{status:'applied',forecast_paused:paused,forecast_expected_since:epoch,official_task_changed:false};
  }finally{await mutex.close();}
 }
-export async function disableLearning({dataRoot,port,releaseId,reason}){check(typeof reason==='string'&&reason.trim().length>0,'DISABLE_REASON_REQUIRED');const mutex=await businessMutex({dataRoot,port,releaseId,task:'admin'});check(mutex.status==='ACQUIRED',mutex.status);try{const file=path.join(dataRoot,'m1-learning/controls.json'),old=await exists(file)?await readJson(dataRoot,file):{disabled_scorers:[],revoked_revisions:[]},next={...old,reason,learning_disabled:true,effective_at:new Date().toISOString(),first_run_id:null};await writeOnce(dataRoot,path.join(dataRoot,'m1-learning/changes',randomUUID()+'.json'),next);await atomic(dataRoot,file,next);return next;}finally{await mutex.close();}}
+export async function disableLearning({runtimeHome,dataRoot,port,releaseId,reason}){
+ check(typeof reason==='string'&&reason.trim().length>0&&reason.length<=2000,'DISABLE_REASON_REQUIRED');
+ check(typeof runtimeHome==='string'&&path.isAbsolute(runtimeHome),'RUNTIME_HOME_REQUIRED');
+ const mutex=await businessMutex({dataRoot,port,releaseId,task:'admin'});check(mutex.status==='ACQUIRED',mutex.status);
+ try{
+  const config=await validateInstallation(path.join(runtimeHome,'installation.local.json')),current=await readJson(runtimeHome,path.join(runtimeHome,'current.json'));
+  check(config.data_root===dataRoot&&config.mutex_port===port,'INSTALLATION_CHANGED');check(current.release_id===releaseId,'PINNED_RELEASE_MISMATCH');
+  const file=path.join(dataRoot,'m1-learning/controls.json'),old=await exists(file)?await readJson(dataRoot,file):{disabled_scorers:[],revoked_revisions:[]};
+  if(old.learning_disabled===true)return{status:'unchanged',controls:old};
+  const next={...old,reason:reason.trim(),learning_disabled:true,effective_at:new Date().toISOString(),first_run_id:null};
+  await writeOnce(dataRoot,path.join(dataRoot,'m1-learning/changes',randomUUID()+'.json'),{phase:'intent',controls:next});
+  await mutex.guard();await atomic(dataRoot,file,next);return{status:'applied',controls:next};
+ }finally{await mutex.close();}
+}
 export async function rollback({runtimeHome}){const current=await readJson(runtimeHome,path.join(runtimeHome,'current.json'));check(current.previous_release_id,'NO_PREVIOUS_RELEASE');const approval=await readJson(runtimeHome,path.join(runtimeHome,'approvals',current.previous_release_id+'.json')),config=await readJson(runtimeHome,path.join(runtimeHome,'installation.local.json'));return activate({runtimeHome,releaseId:current.previous_release_id,approval,config:{...config,forecast_paused:true,ops_paused:true,service_paused:true}});}
 if(import.meta.url===pathToFileURL(process.argv[1]??'').href){
  const command=process.argv[2];let result;
  if(command==='verify')result=await verifyPackage(path.resolve(process.argv[3]));
  else if(command==='stage')result=await stageRelease({packageRoot:path.resolve(process.argv[3]),runtimeHome:path.resolve(process.argv[4])});
  else if(command==='activate'){const runtimeHome=path.resolve(process.argv[3]),approvalPath=path.resolve(process.argv[5]),configPath=path.resolve(process.argv[6]);result=await activate({runtimeHome,releaseId:process.argv[4],approval:await readJson(path.dirname(approvalPath),approvalPath),config:await readJson(path.dirname(configPath),configPath)});}
- else if(command==='learning-disable'){const runtimeHome=path.resolve(process.argv[3]),config=await readJson(runtimeHome,path.join(runtimeHome,'installation.local.json')),current=await readJson(runtimeHome,path.join(runtimeHome,'current.json'));result=await disableLearning({dataRoot:config.data_root,port:config.mutex_port,releaseId:current.release_id,reason:process.argv[4]});}
+ else if(command==='learning-disable'){const runtimeHome=path.resolve(process.argv[3]),config=await readJson(runtimeHome,path.join(runtimeHome,'installation.local.json')),current=await readJson(runtimeHome,path.join(runtimeHome,'current.json'));result=await disableLearning({runtimeHome,dataRoot:config.data_root,port:config.mutex_port,releaseId:current.release_id,reason:process.argv[4]});}
  else if(command==='rollback')result=await rollback({runtimeHome:path.resolve(process.argv[3])});
  else if(['service-status','service-start','service-stop'].includes(command)){const runtimeHome=path.resolve(process.argv[3]),config=await readJson(runtimeHome,path.join(runtimeHome,'installation.local.json')),current=await readJson(runtimeHome,path.join(runtimeHome,'current.json'));const options={runtimeHome,port:config.http_port,releaseId:current.release_id,paused:config.service_paused!==false};result=await(command==='service-status'?serviceStatus(options):command==='service-start'?startService(options):stopService(options));}
  else throw Error('ADMIN_COMMAND_INVALID');console.log(JSON.stringify(result));

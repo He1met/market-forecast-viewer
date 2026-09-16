@@ -60,6 +60,7 @@
     "src/m1-evaluation.ts",
     "scripts/m1-observation-alerts.mjs",
     "scripts/m1-capacity.mjs",
-    "scripts/m1-notifications.mjs"
+    "scripts/m1-notifications.mjs",
+    "scripts/m1-admin-args.mjs"
   ]
 }

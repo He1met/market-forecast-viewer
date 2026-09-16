@@ -1,5 +1,9 @@
 # 开发进度与证据
 
+## 2026-09-16 维护入口第一片：候选包与学习禁用
+
+从3969318恢复Issue15；本片补m1:release完整提交/绝对目标/未知重复参数拒绝，验证上下文自动标SYNTHETIC，候选身份不冒充批准。m1:learning disable经固定安装包及业务锁内当前版本重核，保留控制列表、暂停配置和重复禁用的原生效点/首run。包构建在创建目标前拒绝无效提交及符号链接父目录。部署/回退公开入口与FINAL-05兼容门禁继续待修，FINAL-01仅部分实现。隔离quality通过209/209 Node、177/177 Vitest、typecheck/build；固定包三步通过，含公开release入口与包内learning控制。补测试期间误删仍用的buildPackage import导致一次失败，已恢复并保留失败证据；生产代码未因测试放宽。监督独立核对13当前文件SHA、两份completed及628项内部证据和最终包11份非文档副本，本片LOCAL_SLICE_PASSED，FINAL-01保留PARTIAL；未重跑测试，包内learning为合成模块组合而非已激活正式entry。本段仅更新审查状态，受测代码未改；业务PAUSED，完整工程CHANGES_REQUIRED。
+
 ## 2026-09-16 全工程审查与只读诊断修复
 
 从40b2b75精确git archive实际构建非synthetic候选包，独立依赖/Vite/闭包/667文件哈希通过；候选身份与保全包LOCAL_ONLY，未安装激活。监督逐项核对152个跟踪文件及候选包后，全A/B/C审查返回CHANGES_REQUIRED：FINAL-01维护CLI、02备份观察、03服务故障、04附加输入候选、05回退兼容、06doctor诊断。候选完整性通过不等于最终工程通过。

@@ -1,16 +1,19 @@
+import {learningArguments} from './m1-admin-args.mjs';
 import {notificationSummary} from './m1-notifications.mjs';
 import {doctor,doctorExitCode} from './m1-doctor.mjs';
 import {scoreOldForecasts} from './m1-ops.mjs';
 import {capacitySnapshot,requireCapacity} from './m1-capacity.mjs';
-import {setForecastPaused} from './m1-admin.mjs';
+import {setForecastPaused,disableLearning} from './m1-admin.mjs';
 import fs from'node:fs/promises';import path from'node:path';import{fileURLToPath}from'node:url';import{validateInstallation,readJson,writeOnce,atomic,check,exists}from'./m1-files.mjs';import{verifyPackage}from'./m1-package.mjs';import{serve}from'./m1-server.mjs';import{cycle}from'./m1-cycle.mjs';import{prepareForecast}from'./m1-input.mjs';import{generateInstalled,generateCandidate}from'./m1-model.mjs';import{createDisplayReader}from'./m1-display.mjs';import{projectionStore}from'./m1-index.mjs';import{ops}from'./m1-ops.mjs';import{backup,restore}from'./m1-backup.mjs';import{replayRestored}from'./m1-restore-replay.mjs';import{caseStore}from'./m1-cases.mjs';import{collectCalendar,collectDerivatives}from'./m1-public-data.mjs';import{experimentStore,effectivePolicy}from'./m1-experiments.mjs';import{supplementary}from'./m1-supplementary.mjs';import{startService,serviceStatus}from'./m1-service.mjs';
 export async function entry(command,home,releaseId,args=[]){
- check(args.length===0||(command==='doctor'&&args.length===1&&args[0]==='--full-audit'),'ENTRY_ARGUMENTS_INVALID');
+ if(command==='learning')learningArguments(args);
+ else check(args.length===0||(command==='doctor'&&args.length===1&&args[0]==='--full-audit'),'ENTRY_ARGUMENTS_INVALID');
  const codeRoot=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..'),config=await validateInstallation(path.join(home,'installation.local.json'));process.env.MFV_DATA_ROOT=config.data_root;process.env.MFV_RUNTIME_HOME=home;
  const manifest=await verifyPackage(codeRoot);check(manifest.release_id===releaseId,'PINNED_RELEASE_MISMATCH');
  const policy=manifest.policy.policy;
  const readCapacity=()=>capacitySnapshot(config.data_root,{policy:config.capacity});
  const approval=await readJson(home,path.join(home,'approvals',releaseId+'.json'));check(manifest.synthetic!==true&&approval.schema==='MFV:MAINTAINER_APPROVAL:v1'&&approval.release_id===releaseId&&approval.build_sha===manifest.build_sha&&approval.approved===true&&/^https:\/\/github\.com\/He1met\/market-forecast-viewer\/(?:pull|issues)\//.test(approval.source_url)&&Number.isFinite(Date.parse(approval.approved_at)),'RELEASE_NOT_APPROVED');
+ if(command==='learning')return disableLearning({runtimeHome:home,dataRoot:config.data_root,port:config.mutex_port,releaseId,...learningArguments(args)});
  if(['pause','resume'].includes(command))return setForecastPaused({runtimeHome:home,releaseId,paused:command==='pause'});
  const readForecastControl=async()=>{const fresh=await validateInstallation(path.join(home,'installation.local.json'));check(fresh.data_root===config.data_root&&fresh.mutex_port===config.mutex_port,'INSTALLATION_CHANGED');return{paused:fresh.forecast_paused!==false,expectedSince:fresh.forecast_expected_since??null};};
  if(command==='notifications')return notificationSummary(config.data_root);

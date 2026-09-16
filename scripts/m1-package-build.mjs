@@ -3,8 +3,10 @@ import fs from'node:fs/promises';import path from'node:path';import{execFileSync
 import{digest,encode,check,readBytes,readJson,writeOnce,within,safePath,sourceCodeRoot as here}from'./m1-files.mjs';import{verifyPackage,tree}from'./m1-package.mjs';
 export async function buildPackage({sourceRoot=here,destination,buildSha,synthetic=false}) {
  check(path.isAbsolute(destination)&&!within(destination,sourceRoot),'PACKAGE_DESTINATION_INVALID');
- await fs.mkdir(destination,{recursive:false,mode:0o700});
+ check(/^[a-f0-9]{40}$/.test(buildSha??''),'BUILD_SHA_REQUIRED');
+ await safePath(path.parse(destination).root,path.dirname(destination));
  const sourceCommit=execFileSync('git',['rev-parse',buildSha+'^{commit}'],{cwd:sourceRoot,encoding:'utf8'}).trim();check(sourceCommit===buildSha,'SOURCE_COMMIT_MISMATCH');
+ await fs.mkdir(destination,{recursive:false,mode:0o700});
  const archive=execFileSync('git',['archive','--format=tar',buildSha],{cwd:sourceRoot,maxBuffer:64*1024*1024});const buildRoot=await fs.mkdtemp(path.join(path.dirname(destination),'runtime-build-'));
  execFileSync('tar',['-x','-C',buildRoot],{input:archive});sourceRoot=buildRoot;
  execFileSync('npm',['ci','--no-audit','--no-fund'],{cwd:sourceRoot,stdio:'pipe',timeout:120000});

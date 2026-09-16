@@ -1,6 +1,8 @@
-import fs from'node:fs/promises';import path from'node:path';import assert from'node:assert/strict';import{execFileSync}from'node:child_process';import{requireEvidence}from'./evidence-context.mjs';import{verifyPackage}from'./m1-package.mjs';import{buildPackage}from'./m1-package-build.mjs';import{stageRelease,activate}from'./m1-admin.mjs';
+import {buildPackage} from './m1-package-build.mjs';
+import fs from'node:fs/promises';import path from'node:path';import assert from'node:assert/strict';import{execFileSync}from'node:child_process';import{requireEvidence}from'./evidence-context.mjs';import{verifyPackage}from'./m1-package.mjs';import{stageRelease,activate}from'./m1-admin.mjs';
 const e=requireEvidence(),target=path.join(e.evidence_root,'runtime-package');
-const manifest=await buildPackage({sourceRoot:process.cwd(),destination:target,synthetic:true,buildSha:execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim()});
+const releaseResult=JSON.parse(execFileSync(process.execPath,['scripts/m1-release.mjs','--commit',execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),'--destination',target],{encoding:'utf8'}));
+assert.equal(releaseResult.synthetic,true);assert.equal(releaseResult.activated,false);assert.equal(releaseResult.maintainer_approval,false);const manifest=await verifyPackage(target);assert.equal(releaseResult.release_id,manifest.release_id);
 const syntheticHome=path.join(e.evidence_root,'synthetic-install');await stageRelease({packageRoot:target,runtimeHome:syntheticHome});await assert.rejects(()=>activate({runtimeHome:syntheticHome,releaseId:manifest.release_id,approval:{},config:{}}),/SYNTHETIC_PACKAGE_CANNOT_ACTIVATE/);
 assert.equal(manifest.dependencies.tsx,JSON.parse(await fs.readFile('package-lock.json')).packages['node_modules/tsx'].version);
 const result=execFileSync(process.execPath,['--import','tsx','--input-type=module','-e',"import{verifyPackage}from'./scripts/m1-package.mjs';console.log((await verifyPackage(process.cwd())).release_id)"],{cwd:target,encoding:'utf8',env:{...process.env,NODE_PATH:'',MFV_RUNTIME_HOME:e.evidence_root}}).trim();assert.equal(result,manifest.release_id);
@@ -23,6 +25,7 @@ const probe=net.createServer();await new Promise(r=>probe.listen(0,'127.0.0.1',r
 const doctorOptions={codeRoot:process.cwd(),config:{data_root:process.env.MFV_DATA_ROOT,runtime_home:process.env.MFV_RUNTIME_HOME,mutex_port:probePort},manifest:JSON.parse(await fs.readFile('manifest.json'))};
 const diagnostic=await doctor(doctorOptions);assert.equal(diagnostic.tasks.official_current,'unknown');assert.equal(diagnostic.audit.status,'not_requested');assert.equal(diagnostic.mutex.status,'vacant');
 const audited=await doctor({...doctorOptions,fullAudit:true});assert.ok(audited.audit.checked>0);assert.notEqual(audited.audit.status,'incomplete');assert.equal(audited.audit.backup_restore_verified,false);
+await assert.rejects(()=>entry('learning',process.env.MFV_RUNTIME_HOME,doctorOptions.manifest.release_id,['disable','--reason','']),/LEARNING_ARGUMENTS_INVALID/);
 await assert.rejects(()=>entry('doctor',process.env.MFV_RUNTIME_HOME,doctorOptions.manifest.release_id,['--bad']),/ENTRY_ARGUMENTS_INVALID/);
 console.log(JSON.stringify({doctor_package_modules:true,audit_status:audited.audit.status,audited:audited.audit.checked,installed_approval_bypass:false}));
 await projectionStore(process.env.MFV_DATA_ROOT).update(reader);
@@ -127,7 +130,8 @@ console.log(JSON.stringify({installed_missing_output:'passed',actual_prediction_
 // synthetic packages remain forbidden at the official activation/entry boundary.
 console.log(execFileSync(process.execPath,['--import','tsx','--input-type=module','-e',`
 import assert from 'node:assert/strict';import fs from 'node:fs/promises';import path from 'node:path';import net from 'node:net';
-import {setForecastPaused} from './scripts/m1-admin.mjs';import {atomic,validateInstallation} from './scripts/m1-files.mjs';import {publicationHealth} from './scripts/m1-publication-health.mjs';
+import {setForecastPaused,disableLearning} from './scripts/m1-admin.mjs';
+import {learningArguments} from './scripts/m1-admin-args.mjs';import {atomic,validateInstallation} from './scripts/m1-files.mjs';import {publicationHealth} from './scripts/m1-publication-health.mjs';
 const home=path.join(process.env.MFV_RUNTIME_HOME,'pause-home'),data=path.join(process.env.MFV_RUNTIME_HOME,'pause-data');await fs.mkdir(home);await fs.mkdir(data);
 const s=net.createServer();await new Promise(r=>s.listen(0,'127.0.0.1',r));const port=s.address().port;await new Promise(r=>s.close(r));
 const file=path.join(home,'installation.local.json'),releaseId='a'.repeat(64);await atomic(home,file,{schema:'MFV:INSTALLATION:v1',runtime_home:home,data_root:data,http_port:port===65535?port-1:port+1,mutex_port:port,forecast_paused:true,ops_paused:true});await atomic(home,path.join(home,'current.json'),{release_id:releaseId});
@@ -135,7 +139,8 @@ const change=(paused,at)=>setForecastPaused({runtimeHome:home,releaseId,paused,c
 await change(false,'2026-09-15T05:47:00Z');await change(true,'2026-09-15T06:00:00Z');assert.equal((await validateInstallation(file)).forecast_expected_since,null);
 await change(false,'2026-09-15T07:48:00Z');await change(false,'2026-09-15T08:00:00Z');const config=await validateInstallation(file);assert.equal(config.forecast_expected_since,'2026-09-15T07:48:00.000Z');assert.equal(config.ops_paused,true);
 const health=await publicationHealth({reader:{listRunIds:async()=>[]},paused:false,expectedSince:config.forecast_expected_since,now:Date.parse('2026-09-15T08:02:00Z')});assert.equal(health.status,'waiting');assert.equal(health.slots.length,0);
-console.log(JSON.stringify({status:'passed',installed_pause_epoch:true,paused_history_excluded:true,repeated_resume_idempotent:true,official_activation:false}));
+const disabled=await disableLearning({runtimeHome:home,dataRoot:data,port,releaseId,...learningArguments(['disable','--reason','SYNTHETIC regression'])});assert.equal(disabled.status,'applied');assert.equal(disabled.controls.learning_disabled,true);assert.equal((await disableLearning({runtimeHome:home,dataRoot:data,port,releaseId,reason:'retry'})).status,'unchanged');assert.equal((await validateInstallation(file)).forecast_expected_since,config.forecast_expected_since);
+console.log(JSON.stringify({status:'passed',installed_learning_disable:true,installed_pause_epoch:true,paused_history_excluded:true,repeated_resume_idempotent:true,official_activation:false}));
 `],{cwd:target,encoding:'utf8',env:{...process.env,NODE_PATH:'',MFV_RUNTIME_HOME:e.evidence_root},timeout:30000}));
 
 // Compose the real experiment/archive/model modules inside the sealed package.

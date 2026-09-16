@@ -113,3 +113,14 @@ C5历史实测：43项数据单元测试、28项浏览器检查；当前 #13 验
 设置 `MFV_RUNTIME_HOME` 为已批准的安装根后，运行 `npm run m1:pause` 或 `npm run m1:resume`。命令由固定安装包执行，只改变本地预测暂停意图；巡检、展示服务及官方任务开关保持各自配置。未批准或 SYNTHETIC 包不能通过正式入口执行。
 
 暂停在业务锁内原子清空 `forecast_expected_since`；恢复以当前时间开始新的连续启用段，重复恢复保留原起点。安装/回退从暂停和空起点开始。恢复后不追算暂停时段；旧启用配置缺起点时，显式恢复建立新起点。锁忙时命令失败，不抢锁；变更 intent 与配置结果分开，intent 不代表已生效。
+
+### 候选打包与学习禁用
+
+以下参数须替换为已审查的完整提交、独立候选目录和实际安装根。打包只制作候选，不赋予该提交维护者批准，不切换运行包；不能使用分支名或短 SHA。
+
+```sh
+npm run m1:release -- --commit <40位完整commit-sha> --destination /absolute/new-candidate-directory
+MFV_RUNTIME_HOME=/absolute/runtime-home npm run m1:learning -- disable --reason '记录本次禁用原因'
+```
+
+验证沙盒内打包自动标为 SYNTHETIC，拒绝正式激活。学习命令由已批准的固定安装包执行，业务锁内重新核对版本，记录生效时间；重复禁用保留原生效点和首个受影响 run，不改变预测/巡检/服务暂停状态。部署和代码回退公开命令仍待 FINAL-01/05 后续修复，不能据这两个入口认定完整维护链已完成。
