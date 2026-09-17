@@ -1,3 +1,9 @@
+## 未发布失败记录与评分资格
+
+ops生产/候选扫描与forecast fallback共用只读评分资格检查。只接受两次尝试已耗尽、冻结档与尝试收据/原输出/事件审计哈希一致的 `MODEL_ATTEMPT_REJECTED`，且不存在publication、结果档或已发布索引/成功摘要等矛盾迹象；正常扫描返回 `terminal_failed_not_scoreable`，仅解除该对象的评分unresolved，不改变原失败或执行告警。
+
+准备失败、validation失败、单次失败、缺审计证据等类型暂不自动豁免。存在publication路径必须严格读取；成功后缺档、损坏、未完成尝试仍为unresolved。无需重写历史文件或删除告警来消除评分误报；告警与实际运行验收继续按真实记录判断。
+
 # M1 本地运行与维护
 
 ### 服务巡检告警

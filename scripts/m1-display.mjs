@@ -147,6 +147,66 @@ export function createDisplayReader({ root = defaultRoot, dataRoot = process.env
     });
     return includeEvaluation ? displayRunSchema.parse({ ...result, evaluation: await createOutcomeStore({ root, dataRoot, runsRoot }).readLatest(result) }) : result;
   }
+  /** Only two exhausted, fully recorded failures can bypass publication reads.
+   * This is deliberately narrower than the display's failed state: preparation,
+   * validation failures and interrupted/one-attempt runs remain unresolved. */
+  async function readScoringRun(id) {
+    const directory = await preflight(id);
+    check(!(await exists(join(directory, 'preparation-failure.json'))), 'SCORING_FAILURE_UNPROVEN');
+    // Even a dangling symlink or partial publication must take the strict path.
+    if (await exists(join(directory, 'publication'))) return { status: 'readable', run: await readRun(id) };
+    const frozen = await readFrozen(directory);
+    check(canonical(frozen.schema) === canonical(rawOutputJsonSchema), 'SCORING_SCHEMA_MISMATCH');
+    await validateHistory(frozen.input.history);
+    check(iso(frozen.manifest.information_frozen_at), 'SCORING_FREEZE_TIME_INVALID');
+    const entries = await readdir(directory);
+    check(!entries.some(name => name.startsWith('.publication-') || /^attempt-/.test(name) && !['attempt-001', 'attempt-002'].includes(name)), 'SCORING_FAILURE_UNPROVEN');
+    check(!(await exists(join(dataRoot, 'm1-outcomes', id))), 'SCORING_PUBLICATION_EVIDENCE');
+    const successFile = join(dataRoot, 'm1-task-status', 'last-forecast-success.json');
+    if (await exists(successFile)) check((await json(successFile)).forecast_id !== id, 'SCORING_PUBLICATION_EVIDENCE');
+    const indexFile = join(dataRoot, 'm1-projections', 'index.json');
+    if (await exists(indexFile)) {
+      const index = await json(indexFile);
+      check(index.schema === 'MFV:PROJECTIONS:v1' && Array.isArray(index.runs), 'SCORING_INDEX_INVALID');
+      check(index.latest_run_id !== id && !index.runs.some(row => row.run_id === id &&
+        (row.published_at != null || row.projection != null || ['valid', 'late'].includes(row.status))), 'SCORING_PUBLICATION_EVIDENCE');
+    }
+    let endedAt = frozen.manifest.information_frozen_at;
+    for (const attempt of ['attempt-001', 'attempt-002']) {
+      const folder = join(directory, attempt);
+      await safePath(folder, true);
+      check(!(await exists(join(folder, 'validation-result.json'))), 'SCORING_FAILURE_UNPROVEN');
+      const start = await json(join(folder, 'started.json')), receipt = await json(join(folder, 'receipt.json'));
+      check(start.schema === 'MFV:M1_ATTEMPT_START:v1' && start.run_id === id && start.attempt_id === attempt
+        && start.input_sha256 === frozen.manifest.files['input.json']
+        && start.frozen_manifest_sha256 === digest(await bytes(join(directory, 'manifest.json'))), 'SCORING_ATTEMPT_MISMATCH');
+      check(receipt.schema === 'MFV:M1_ATTEMPT_RESULT:v1' && receipt.run_id === id && receipt.attempt_id === attempt
+        && receipt.started_at === start.started_at && receipt.started_sha256 === digest(await bytes(join(folder, 'started.json'))), 'SCORING_RECEIPT_MISMATCH');
+      check(iso(start.started_at) && iso(receipt.ended_at) && Date.parse(start.started_at) >= Date.parse(endedAt)
+        && Date.parse(receipt.ended_at) >= Date.parse(start.started_at), 'SCORING_ATTEMPT_TIME_INVALID');
+      // Support the installed generator's audited rejection only. A receipt
+      // without its audit cannot prove this narrow terminal-failure case.
+      check(receipt.exit_code === -1 && receipt.error === 'MODEL_ATTEMPT_REJECTED'
+        && receipt.event_audit, 'SCORING_FAILURE_UNPROVEN');
+      const raw = join(folder, 'raw-output.json');
+      if (receipt.raw_output_sha256 === null) check(!(await exists(raw)), 'SCORING_RAW_HASH_MISMATCH');
+      else check(typeof receipt.raw_output_sha256 === 'string' && /^[a-f0-9]{64}$/.test(receipt.raw_output_sha256)
+        && digest(await bytes(raw)) === receipt.raw_output_sha256, 'SCORING_RAW_HASH_MISMATCH');
+      if (receipt.event_audit) {
+        const audit = receipt.event_audit;
+        check(audit.schema === 'MFV:CODEX_EVENT_AUDIT:v1'
+          && typeof audit.failed === 'boolean' && typeof audit.turn_completed === 'boolean'
+          && Number.isSafeInteger(audit.unexpected_event_count) && audit.unexpected_event_count >= 0
+          && (Number.isInteger(receipt.cli_exit_code) || receipt.cli_exit_code === null)
+          && digest(await bytes(join(folder, 'events.jsonl'))) === audit.events_sha256
+          && digest(await bytes(join(folder, 'invocation.json'))) === audit.invocation_sha256, 'SCORING_AUDIT_HASH_MISMATCH');
+        check(receipt.cli_exit_code !== 0 || receipt.timed_out === true || audit.failed === true
+          || audit.turn_completed === false || audit.unexpected_event_count > 0, 'SCORING_FAILURE_UNPROVEN');
+      }
+      endedAt = receipt.ended_at;
+    }
+    return { status: 'terminal_failed_not_scoreable' };
+  }
   async function runState(id, checkedAt) {
     // A malformed run.json stays visible as invalid without returning its bytes/error.
     const stamp = id.match(/^m1-(\d{4})(\d\d)(\d\d)T(\d\d)(\d\d)(\d\d)(\d{3})Z/);
@@ -268,7 +328,7 @@ export function createDisplayReader({ root = defaultRoot, dataRoot = process.env
     });
   }
   const listRunIds=async()=>await exists(runsRoot)?(await readdir(await safePath(runsRoot,true))).filter(id=>runIdSchema.safeParse(id).success).sort().reverse():[];
-  return { readRun, readIndex, readRuntime,listRunIds,runState };
+  return { readRun, readScoringRun, readIndex, readRuntime,listRunIds,runState };
 }
 
 /** A tiny Vite middleware used identically by dev and preview, without a static archive mount. */
