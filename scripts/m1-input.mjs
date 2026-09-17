@@ -10,12 +10,13 @@ import { newRun, freezeInput } from './m1-archive.mjs';
 import { validateAndCopyEvents } from './m1-events.mjs';
 import{configuredRoots,readJson as readRootJson}from'./m1-files.mjs';
 import { getHistoryPage } from './m1-history-get.mjs';
+import { writePreparationFailure } from './m1-preparation.mjs';
 
 const exec = promisify(execFile);
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 const endpoint = 'https://www.okx.com/api/v5/market/history-candles';
 const codeFiles = ['scripts/m1-input.mjs', 'scripts/m1-forecast.mjs', 'scripts/m1-archive.mjs', 'scripts/m1-events.mjs',
-  'src/m1-contracts.ts', 'src/contracts.ts', 'scripts/data-utils.mjs', 'scripts/m1-history-get.mjs', 'docs/M1_FORECAST.md'];
+  'src/m1-contracts.ts', 'src/contracts.ts', 'scripts/data-utils.mjs', 'scripts/m1-history-get.mjs', 'scripts/m1-preparation.mjs', 'docs/M1_FORECAST.md'];
 
 // Reuses M0 normalization/validation, but every response belongs to a new run.
 export async function downloadRunHistory(runId, {anchorTime,signal,deadline=Infinity,historyGet=getHistoryPage}={}) {
@@ -65,15 +66,20 @@ stages分别start_step/end_step=1/24、25/48、49/96；lower/upper为你对相�
 冻结模型上下文（完整14天原始来源另行归档；这里展示特征和末96柱）：\n${JSON.stringify(context)}\n`;
 }
 
-export async function prepareForecast(eventsFile,{anchorTime,signal,deadline,historyGet,extraContext={},learningBuilder,supplementaryBuilder}={}) {
+export async function prepareForecast(eventsFile,{anchorTime,signal,deadline,historyGet,preparationContext,extraContext={},learningBuilder,supplementaryBuilder}={}) {
   const run = await newRun();
+  const startedAt=new Date().toISOString();let stage='events';
   try {
     // Event bytes must exist before the market capture and input freeze.
     const { events, original_sha256 } = await validateAndCopyEvents(eventsFile, run.runDir);
+    stage='history';
     const history = await downloadRunHistory(run.run_id,{anchorTime,signal,deadline,historyGet});
+    stage='features';
     const features = extractFeatures(history.candles);
+    stage='learning';
     if(learningBuilder)extraContext={...extraContext,learning:await learningBuilder(features,new Date().toISOString())};
     const anchor_time = history.end_time, anchor_price = history.candles.at(-1).close;
+    stage='supplementary';
     const supplement=supplementaryBuilder?await supplementaryBuilder({cutoff:new Date().toISOString(),anchor:anchor_time}):null;
     const model_context = { ...extraContext,...(supplement?.model_context??{}), instrument: history.instrument, market_type: history.market_type,
       price_type: history.price_type, time_unit: 's', bar_seconds: 900, anchor_time, anchor_price,
@@ -88,11 +94,12 @@ export async function prepareForecast(eventsFile,{anchorTime,signal,deadline,his
     const provenance = { method_version: METHOD_VERSION, prompt_version: PROMPT_VERSION,
       code_head: head.trim(), code_sha256: code, events_file_sha256: original_sha256,
       model_context_policy: 'last_96_candles_and_6h_12h_24h_features_from_frozen_14_days', visibility: 'LOCAL_ONLY' };
+    stage='freeze';
     const manifest = await freezeInput(run.runDir, input, buildPrompt(model_context), rawOutputJsonSchema, provenance);
     return { ...run, manifest, anchor_time, first_node: anchor_time + 900 };
   } catch (error) {
-    await fs.writeFile(path.join(run.runDir, 'preparation-failure.json'), JSON.stringify({
-      at: new Date().toISOString(), status: 'failed', error: error.message, visibility: 'LOCAL_ONLY' }, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
+    const bound=await writePreparationFailure({dataRoot:configuredRoots().data_root,runId:run.run_id,context:preparationContext,stage,startedAt,error});
+    if(bound)error.preparation_failure=bound;
     throw error;
   }
 }

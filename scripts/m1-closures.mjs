@@ -15,6 +15,45 @@ const exact = (x,names) => x && typeof x==='object' && !Array.isArray(x) && cano
 const json = async(root,file) => parseStrict((await readBytes(root,file)).toString('utf8'));
 const owner = x => x?.user?.id===65616876 && x.user.login==='He1met';
 
+const closureNames=['historical-report.json','planning-issue.json','review.json','statement.json'];
+function reviewIdentity(review,after) {
+ check(owner(review)&&['COMMENTED','APPROVED'].includes(review.state)&&Number.isSafeInteger(review.id)&&
+  /^[a-f0-9]{40}$/.test(review.commit_id??'')&&iso(review.submitted_at)&&Date.parse(review.submitted_at)>=Date.parse(after)&&Date.parse(review.submitted_at)<=Date.now()&&
+  new RegExp('^https://github.com/He1met/market-forecast-viewer/pull/[1-9][0-9]*#pullrequestreview-'+review.id+'$').test(review.html_url??''),'CLOSURE_REVIEW_IDENTITY');
+}
+function reviewBlock(review,tag) {
+ const blocks=typeof review.body==='string'?[...review.body.matchAll(new RegExp('```'+tag+'\\n([\\s\\S]*?)\\n```','g'))]:[];
+ check(blocks.length===1,'CLOSURE_REVIEW_REQUIRED');return parseStrict(blocks[0][1]);
+}
+export async function closureBundle(dataRoot,runId) {
+ const folder=path.join(dataRoot,'m1-closures',runId);await safePath(dataRoot,folder);
+ check(canonical((await fs.readdir(folder)).sort())===canonical(closureNames),'CLOSURE_FILE_SET');
+ const files={};for(const name of closureNames){const b=await readBytes(dataRoot,path.join(folder,name));files[name]={bytes:b.length,sha256:digest(b)};}
+ return {files,bundle_sha256:digest(canonical(files))};
+}
+export async function implementationHashes(codeRoot) {
+ const files={};for(const name of closureImplementationFiles)files[name]=digest(await readBytes(codeRoot,path.join(codeRoot,name)));return files;
+}
+/** Audit every historical sidecar, not just the one matching current code. */
+export async function auditClosureImplementations(dataRoot) {
+ const root=path.join(dataRoot,'m1-closure-implementations'),records=new Map();if(!await exists(root))return records;
+ await safePath(dataRoot,root);const ids=await fs.readdir(root);check(ids.length<=64,'CLOSURE_IMPLEMENTATION_LIMIT');
+ for(const id of ids){runIdSchema.parse(id);const dir=path.join(root,id);await safePath(dataRoot,dir);check((await fs.stat(dir)).isDirectory(),'CLOSURE_FILE_TYPE');
+  const bundle=await closureBundle(dataRoot,id),base=await json(dataRoot,path.join(dataRoot,'m1-closures',id,'review.json'));
+  const names=await fs.readdir(dir);check(names.length>0&&names.length<=64,'CLOSURE_IMPLEMENTATION_LIMIT');
+  for(const name of names){check(/^[a-f0-9]{64}\.json$/.test(name),'CLOSURE_IMPLEMENTATION_NAME');const review=await json(dataRoot,path.join(dir,name));reviewIdentity(review,base.submitted_at);
+   const d=reviewBlock(review,'mfv-closure-implementation-review');
+   check(exact(d,['schema','decision','run_id','statement_sha256','original_bundle_sha256','original_review_sha256','reviewed_commit','implementation_files'])&&
+    d.schema==='MFV:CLOSURE_IMPLEMENTATION_REVIEW:v1'&&d.decision==='existing_closure_revalidated'&&d.run_id===id&&
+    d.statement_sha256===bundle.files['statement.json'].sha256&&d.original_bundle_sha256===bundle.bundle_sha256&&d.original_review_sha256===bundle.files['review.json'].sha256&&
+    d.reviewed_commit===review.commit_id&&exact(d.implementation_files,closureImplementationFiles)&&Object.values(d.implementation_files).every(sha)&&
+    name===digest(canonical(d.implementation_files))+'.json','CLOSURE_IMPLEMENTATION_MISMATCH');
+   records.set(id+'/'+name,{review,decision:d});
+  }
+ }
+ return records;
+}
+
 export async function listClosureIds(dataRoot) {
  const root=path.join(dataRoot,'m1-closures');if(!await exists(root))return [];
  await safePath(dataRoot,root);const ids=await fs.readdir(root);
@@ -65,7 +104,7 @@ export async function readLegacyClosure({codeRoot,dataRoot,runId,runsRoot,frozen
  check(path.resolve(runsRoot)===path.join(path.resolve(dataRoot),'forecast-runs'),'CLOSURE_ROLE_UNSUPPORTED');
  const container=recordRoot?path.dirname(folder):dataRoot;
  await safePath(container,folder);
- check(canonical((await fs.readdir(folder)).sort())===canonical(['historical-report.json','planning-issue.json','review.json','statement.json']), 'CLOSURE_FILE_SET');
+ check(canonical((await fs.readdir(folder)).sort())===canonical(closureNames), 'CLOSURE_FILE_SET');
  const statementBytes=await readBytes(container,path.join(folder,'statement.json')),s=parseStrict(statementBytes.toString('utf8'));
  check(exact(s,['schema','run_id','role','proposed_at','manifest_sha256','parser_sha256','original_inventory','historical_report','planning_issue']) &&
   s.schema==='MFV:LEGACY_CLOSURE:v1'&&s.run_id===runId&&s.role==='production'&&iso(s.proposed_at)&&
@@ -107,14 +146,16 @@ export async function readLegacyClosure({codeRoot,dataRoot,runId,runsRoot,frozen
    'CLOSURE_SOURCE_IDENTITY');
  }
  const review=await json(container,path.join(folder,'review.json'));
- check(owner(review)&&['COMMENTED','APPROVED'].includes(review.state)&&Number.isSafeInteger(review.id)&&
-  /^[a-f0-9]{40}$/.test(review.commit_id??'')&&iso(review.submitted_at)&&Date.parse(review.submitted_at)>=Date.parse(s.proposed_at)&&Date.parse(review.submitted_at)<=Date.now()&&
-  new RegExp('^https://github.com/He1met/market-forecast-viewer/pull/[1-9][0-9]*#pullrequestreview-'+review.id+'$').test(review.html_url??''), 'CLOSURE_REVIEW_IDENTITY');
- const blocks=typeof review.body==='string'?[...review.body.matchAll(/```mfv-closure-review\n([\s\S]*?)\n```/g)]:[];
- check(blocks.length===1,'CLOSURE_REVIEW_REQUIRED');const decision=parseStrict(blocks[0][1]);
+ reviewIdentity(review,s.proposed_at);const decision=reviewBlock(review,'mfv-closure-review');
  check(exact(decision,['schema','decision','statement_sha256','reviewed_commit','implementation_files'])&&decision.schema==='MFV:CLOSURE_REVIEW:v1'&&
   decision.decision==='historical_unpublished_closure_approved'&&decision.statement_sha256===digest(statementBytes)&&
   decision.reviewed_commit===review.commit_id&&exact(decision.implementation_files,closureImplementationFiles),'CLOSURE_REVIEW_MISMATCH');
- for(const file of closureImplementationFiles)check(sha(decision.implementation_files[file])&&digest(await readBytes(codeRoot,path.join(codeRoot,file)))===decision.implementation_files[file], 'CLOSURE_REVIEWED_CODE_CHANGED');
- return {status:'historical_unpublished_closed_not_scoreable',statement_sha256:digest(statementBytes),review_url:review.html_url};
+ check(Object.values(decision.implementation_files).every(sha),'CLOSURE_REVIEW_MISMATCH');
+ const current=await implementationHashes(codeRoot),records=await auditClosureImplementations(dataRoot);
+ let accepted=review;
+ if(canonical(current)!==canonical(decision.implementation_files)){
+  check(!recordRoot,'CLOSURE_VERSIONED_CANDIDATE_REQUIRES_ISOLATED_DATA_ROOT');
+  const record=records.get(runId+'/'+digest(canonical(current))+'.json');check(record,'CLOSURE_REVIEWED_CODE_CHANGED');accepted=record.review;
+ }
+ return {status:'historical_unpublished_closed_not_scoreable',statement_sha256:digest(statementBytes),review_url:accepted.html_url};
 }

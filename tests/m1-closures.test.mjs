@@ -87,3 +87,18 @@ test('SYNTHETIC closure bytes survive backup/restore and replay; corruption inva
  process.env.MFV_DATA_ROOT=f.dataRoot;await fs.appendFile(path.join(f.folder,'historical-report.json'),' ');assert.notEqual((await archiveSnapshot(f.dataRoot)).sha256,before.sha256);
  await fs.mkdir(path.join(f.dataRoot,'m1-closures','not-a-run'));await assert.rejects(listClosureIds(f.dataRoot));
 });
+
+test('SYNTHETIC additive implementation review binds immutable original bundle; all historical records are audited',async t=>{
+ const {closureBundle,implementationHashes,auditClosureImplementations}=await import('../scripts/m1-closures.mjs');
+ const f=await fixture(t),original=await read(path.join(f.folder,'review.json'));
+ const block=JSON.parse(original.body.match(/```mfv-closure-review\n([\s\S]*?)\n```/)[1]);block.implementation_files['scripts/m1-display.mjs']='f'.repeat(64);original.body='SYNTHETIC old code\n```mfv-closure-review\n'+JSON.stringify(block)+'\n```';await write(path.join(f.folder,'review.json'),original);
+ const before=await closureInventory(f.folder);await assert.rejects(f.reader.readScoringRun(f.run_id));
+ const bundle=await closureBundle(f.dataRoot,f.run_id),implementation_files=await implementationHashes(codeRoot),version=digest(canonical(implementation_files));
+ const decision={schema:'MFV:CLOSURE_IMPLEMENTATION_REVIEW:v1',decision:'existing_closure_revalidated',run_id:f.run_id,statement_sha256:bundle.files['statement.json'].sha256,original_bundle_sha256:bundle.bundle_sha256,original_review_sha256:bundle.files['review.json'].sha256,reviewed_commit:'b'.repeat(40),implementation_files};
+ const review={...original,id:14,commit_id:'b'.repeat(40),submitted_at:new Date().toISOString(),html_url:'https://github.com/He1met/market-forecast-viewer/pull/29#pullrequestreview-14',body:'SYNTHETIC ONLY\n```mfv-closure-implementation-review\n'+JSON.stringify(decision)+'\n```'};
+ const file=path.join(f.dataRoot,'m1-closure-implementations',f.run_id,version+'.json');await write(file,review);
+ assert.equal((await f.reader.readScoringRun(f.run_id)).status,'historical_unpublished_closed_not_scoreable');assert.deepEqual(await closureInventory(f.folder),before);
+ const backupRoot=path.join(f.base,'new-backup');await fs.mkdir(backupRoot);const b=await backup({dataRoot:f.dataRoot,target:backupRoot,port:await freePort(),releaseId:'SYNTHETIC'});assert.equal(b.status,'completed');assert.equal(b.manifest.files.filter(x=>x.name.startsWith('m1-closure-implementations/')).length,1);
+ const dest=path.join(f.base,'new-restore');const restored=await restore({target:backupRoot,manifestFile:path.join(backupRoot,'manifests',b.manifest.id+'.json'),destination:dest,verify:root=>replayRestored({codeRoot,dataRoot:root,limit:30})});assert.equal(restored.replay.passed,true);
+ await write(path.join(path.dirname(file),'f'.repeat(64)+'.json'),review);await assert.rejects(auditClosureImplementations(f.dataRoot),/CLOSURE_IMPLEMENTATION_MISMATCH/);await assert.rejects(f.reader.readScoringRun(f.run_id));
+});

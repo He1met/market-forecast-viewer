@@ -641,3 +641,13 @@ Node、npm与依赖按本项目验证版本固定，不在CI临时升级latest�
 ## 历史语义兼容基线
 
 本规格经2026-09-15用户整套实施授权，替代此前按#11–#14逐项交付的实施范围。历史已发布原档继续按其冻结语义读取；旧规格及语义闭包保存在[compat/m1-v1](../compat/m1-v1/docs/M1_FORECAST.md)。源方案638行，SHA256 `48738bdadb09f18a1b85ca2a00a53a04957733ab2ec4251c6f26c57a0fcc8dd4`；授权来自用户监督任务转交的当前请求，不伪造GitHub审查批准。
+
+### Issue #27：冻结前准备失败与审查证据续接
+
+正式预报在输入冻结开始前终止，只有不可变的 `MFV:PREPARATION_FAILURE:v1` 收据同时绑定 run、准备阶段、原档清单、观察记录、slot、release，且最终观察记录反向绑定该收据哈希，才可分类为 `preparation_failed_not_scoreable`。页面仍显示失败；ops 与 forecast fallback 不为它下载结果或评分；预报健康检查仍将对应到期时段记为 missing/stalled。冻结已开始、部分冻结、缺失/改动/矛盾证据均不得取得该分类。
+
+旧收据保持原样。旧准备失败需要当前独立审查的 `m1-preparation-proofs/<run>/<implementation-map-digest>/` 四文件证明（statement、verification、observation、GitHub formal review）。证明直接绑定原始失败、run、数据源清单和原始观察记录；实现版本不匹配时不能沿用评分豁免。读者核验本地快照，部署维护另须联网复核审查及撤回状态。
+
+已有 `m1-closures/<run>/` 原四文件保持逐字不变。实现变更通过 `m1-closure-implementations/<run>/<implementation-map-digest>.json` 增量留存新的独立 formal review，直接绑定原四文件 bundle、statement、原 review 及当前六个实现文件。无 latest 指针、不沿审查链追认；所有历史记录都检查，损坏/孤立记录使兼容性或恢复失败。
+
+两个新证据根全部纳入备份、兼容性及恢复重放。存在新根时，目标包必须显式声明支持，旧包忽略新文件不代表安全回退；禁止删除新证据以迁就旧包。正式写入新增证据前，须完成完整备份、精确代码与证明审查、候选包隔离恢复和切换事务核验。新实现部署及自然运行结果另行登记，不能以离线测试代替。

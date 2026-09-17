@@ -26,7 +26,7 @@ export async function cycle({dataRoot,releaseId,mutexPort,trigger='manual',taskI
   if(oldBudget>0){try{oldResults=await scoreOld({signal:AbortSignal.timeout(Math.floor(oldBudget)),deadline:monotonic()+oldBudget,mutex});}
    catch(e){oldResults={status:'failed',reason:e.message};await writeOnce(dataRoot,path.join(folder,'old-results-failure.json'),oldResults);}}
   else oldResults={status:'skipped',reason:'insufficient_budget'};
-  await guard();const input=await freeze({slot,policy,deadline:writeDeadline,signal:AbortSignal.timeout(Math.max(1,Math.floor(writeDeadline-monotonic()))),mutex});
+  await guard();const input=await freeze({slot,policy,deadline:writeDeadline,signal:AbortSignal.timeout(Math.max(1,Math.floor(writeDeadline-monotonic()))),mutex,preparationContext:{observationId:id,slotId:slot.slot_id,releaseId}});
   if(readCapacity)capacity=await readCapacity();
   candidateCapacitySkipped=capacity?.optional_work==='blocked';
   if(!candidateCapacitySkipped)candidate=await prepareCandidate(registration,input,{guard:mutex.guard,deadline:writeDeadline});
@@ -34,7 +34,7 @@ export async function cycle({dataRoot,releaseId,mutexPort,trigger='manual',taskI
   if(!published)throw Error(lastError??'INSUFFICIENT_MODEL_BUDGET');official=published;await guard();await publishIndex({published,mutex,deadline:writeDeadline});
   result={status:'completed',forecast_id:published.forecast.run_id,slot_id:slot.slot_id};
   let candidateStatus='not_registered';if(registration){if(readCapacity)capacity=await readCapacity();candidateStatus=candidateCapacitySkipped||capacity?.optional_work==='blocked'?'capacity_skipped':'budget_skipped';const remaining=writeDeadline-monotonic();if(candidate&&remaining>=90000&&(!capacity||capacity.optional_work==='allowed')){try{candidateAttempted=true;await runCandidate(candidate,{mutex,timeoutMs:Math.min(240000,remaining),beforePublish:guard});candidateStatus='published';}catch{candidateStatus='failed';}}finalizationAttempted=true;await finishOpportunity(registration,{candidate_invoked:candidateAttempted,official_run_id:published.forecast.run_id,candidate_run_id:candidate?.run_id??null,candidate_status:candidateStatus});registration=null;}return result;
- }catch(e){result={status:'failed',reason:e.message,slot_id:slot.slot_id,...(official?{forecast_id:official.forecast.run_id,publication_committed:true}: {})};return result;}
+ }catch(e){result={status:'failed',reason:e.message,slot_id:slot.slot_id,...(e.preparation_failure?{preparation_failure:e.preparation_failure}:{}),...(official?{forecast_id:official.forecast.run_id,publication_committed:true}: {})};return result;}
  finally{
   // Finalization errors must remain visible without stranding an otherwise idle mutex.
   try{
