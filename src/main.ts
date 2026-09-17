@@ -28,7 +28,7 @@ function renderRuntime(runtime:RuntimeDisplay){
  const target=$('runtime-details');target.replaceChildren();
  const add=(text:string)=>{const p=document.createElement('p');p.textContent=text;target.append(p);};
  const configuration=runtime.configuration;
- add(configuration?`配置回读：每 ${configuration.frequency_hours} 小时；调度时区：${configuration.time_zone??'未知'}；回读时${configuration.enabled?'启用':'暂停'}（${configuration.read_back_at}）。官方当前启用状态未实时回读。`:'业务任务未配置：尚无已核验的官方配置回读。');
+ add(configuration?`配置回读：每 ${configuration.frequency_hours} 小时；调度时区：${configuration.time_zone??'未知'}；回读时${configuration.enabled?'启用':'暂停'}（${configuration.read_back_at}）。官方当前启用状态未实时回读。`:runtime.source==='installed'?'官方任务配置未接入本页；请在Codex任务中查看启用状态。':'业务任务未配置：尚无已核验的官方配置回读。');
  add('下次官方计划时间：未知（官方入口未提供可读取的下次时间，不按频率推算）。');
  add(runtime.release_integrity==='verified'?'固定发布文件与所列代码字节核验一致；此项不代表本轮已运行成功。':runtime.release_integrity==='changed'?'当前发布文件或代码已改变，业务入口将拒绝使用当前版本。下面的成功或失败记录属于原轮次，未伪造新的运行尝试。':runtime.release_integrity==='unknown'?'固定发布版本核验未知：缺少可读取的绑定资料或无法校验；下面仅展示历史运行记录。':'固定发布版本尚未配置。');
  if(attempt){
