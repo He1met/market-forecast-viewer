@@ -92,8 +92,8 @@ test('SYNTHETIC interrupted, one failed, successful unpublished and preparation 
   for(const attempt of ['attempt-001','attempt-002']){const file=path.join(forged.runDir,attempt,'receipt.json'),v=await read(file);v.event_audit[mutation]=mutation==='failed'?true:1;await write(file,v);}
   await assert.rejects(forged.reader.readScoringRun(forged.run_id),/SCORING_AUDIT_MISMATCH/);
  }
- const r=await f.add();await write(path.join(r.runDir,'preparation-failure.json'),{status:'failed',at:new Date().toISOString()});await assert.rejects(r.reader.readScoringRun(r.run_id),/SCORING_FAILURE_UNPROVEN/);
- const published=await f.add({count:1,success:true,publish:true});await write(path.join(published.runDir,'preparation-failure.json'),{status:'failed',at:new Date().toISOString()});await assert.rejects(published.reader.readScoringRun(published.run_id),/SCORING_FAILURE_UNPROVEN/);
+ const r=await f.add();await write(path.join(r.runDir,'preparation-failure.json'),{status:'failed',at:new Date().toISOString()});await assert.rejects(r.reader.readScoringRun(r.run_id),/PREPARATION_FAILURE_INVALID/);
+ const published=await f.add({count:1,success:true,publish:true});await write(path.join(published.runDir,'preparation-failure.json'),{status:'failed',at:new Date().toISOString()});await assert.rejects(published.reader.readScoringRun(published.run_id),/PREPARATION_FAILURE_INVALID/);
 });
 
 test('SYNTHETIC corruption, forged receipt identity, audit tampering and symlink paths cannot become ineligible',async t=>{

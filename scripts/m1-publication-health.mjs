@@ -23,7 +23,14 @@ export async function publicationHealth({reader,paused=true,expectedSince=null,n
    try{
     const {forecast:f}=await reader.readRun(id,{includeEvaluation:false});
     if(f.anchor_time===slot.anchor_time&&f.status==='valid'&&Date.parse(f.published_at)<slot.first_node*1000&&Date.parse(f.published_at)<=now){status='present';forecastId=id;break;}
-   }catch(e){if(e.message!=='PUBLICATION_MISSING')status='unknown';}
+   }catch(e){
+    if(e.message==='PUBLICATION_MISSING')continue;
+    try{
+     const preparation=await reader.readPreparationState?.(id);
+     if(preparation?.status==='preparation_failed_not_scoreable'&&preparation.slot_id===slot.slot_id)continue;
+    }catch{/* Corruption or incomplete evidence remains unknown. */}
+    status='unknown';
+   }
   }
   base.slots.push({slot_id:slot.slot_id,anchor_time:slot.anchor_time,deadline_at:new Date((slot.first_node+120)*1000).toISOString(),status,forecast_id:forecastId});
  }

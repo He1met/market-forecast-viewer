@@ -5,7 +5,7 @@ import {promisify} from 'node:util';
 import {check, digest, canonical, safePath, readBytes} from './m1-files.mjs';
 import {verifyPackage} from './m1-package.mjs';
 const execute = promisify(execFile);
-const roots = ['forecast-runs', 'm1-candidates', 'm1-outcomes', 'm1-cases', 'm1-learning', 'm1-closures'];
+const roots = ['forecast-runs', 'm1-candidates', 'm1-outcomes', 'm1-cases', 'm1-learning', 'm1-closures','m1-closure-implementations','m1-preparation-proofs','m1-observations','m1-slots'];
 // Called under the business mutex. Hash every archive byte, including historical
 // revisions and controls; never reuse an earlier compatibility receipt.
 export async function archiveSnapshot(dataRoot) {
@@ -28,10 +28,21 @@ import fs from 'node:fs/promises';import path from 'node:path';
 import {createDisplayReader} from './scripts/m1-display.mjs';
 import {createOutcomeStore} from './scripts/m1-outcome-store.mjs';
 import {caseStore} from './scripts/m1-cases.mjs';
-import {listClosureIds} from './scripts/m1-closures.mjs';
+import * as closureModule from './scripts/m1-closures.mjs';
+const {listClosureIds,auditClosureImplementations}=closureModule;
+// The outer gate has already required explicit support when new roots exist.
+const preparationModule=await fs.stat('./scripts/m1-preparation.mjs').then(()=>import('./scripts/m1-preparation.mjs')).catch(e=>{if(e.code==='ENOENT')return null;throw e;});
 const dataRoot=process.env.MFV_DATA_ROOT, root=process.cwd();
 const names=async p=>{try{return await fs.readdir(p);}catch(e){if(e.code==='ENOENT')return [];throw e;}};
 let runs=0,captures=0,revisions=0,cases=0,failed_runs=0,closures=0;const known=new Set();
+if(auditClosureImplementations)await auditClosureImplementations(dataRoot);
+if(preparationModule){
+ const proofs=await preparationModule.auditPreparationProofs(dataRoot);
+ for(const id of new Set([...proofs.keys()].map(x=>x.split('/')[0]))){
+  const result=await createDisplayReader({root,dataRoot}).readScoringRun(id);
+  if(result.status!=='preparation_failed_not_scoreable')throw Error('PREPARATION_PROOF_COMPATIBILITY_INVALID');
+ }
+}
 for(const id of await listClosureIds(dataRoot)){
  const result=await createDisplayReader({root,dataRoot}).readScoringRun(id);
  if(result.status!=='historical_unpublished_closed_not_scoreable')throw Error('CLOSURE_COMPATIBILITY_INVALID');closures++;
@@ -59,6 +70,16 @@ console.log(JSON.stringify({status:'compatible',runs,captures,revisions,cases,fa
 export async function verifyTargetArchives({packageRoot, dataRoot, releaseId}) {
  const manifest = await verifyPackage(packageRoot);
  check(manifest.release_id === releaseId, 'COMPATIBILITY_TARGET_MISMATCH');
+ // Old readers ignoring sidecars do not prove that their backup covers them.
+ // Block rollback to such a package; never remove the new evidence to proceed.
+ for(const name of ['m1-closure-implementations','m1-preparation-proofs']){
+  let present=false;try{await safePath(dataRoot,path.join(dataRoot,name));present=true;}catch(e){if(e.code!=='ENOENT')throw e;}
+  if(present){
+   const support='config/m1-evidence-roots.json';check(manifest.files[support],'TARGET_EVIDENCE_ROOT_UNSUPPORTED:'+name);
+   const value=JSON.parse((await readBytes(packageRoot,path.join(packageRoot,support))).toString('utf8'));
+   check(value.schema==='MFV:EVIDENCE_ROOT_SUPPORT:v1'&&Array.isArray(value.roots)&&value.roots.includes(name),'TARGET_EVIDENCE_ROOT_UNSUPPORTED:'+name);
+  }
+ }
  const before = await archiveSnapshot(dataRoot);
  const env = {...process.env, MFV_DATA_ROOT:dataRoot};delete env.NODE_OPTIONS;delete env.NODE_PATH;
  const {stdout} = await execute(process.execPath, ['--import','tsx','--input-type=module','-e',replay],

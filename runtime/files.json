@@ -70,6 +70,8 @@
     "scripts/m1-backup-cycle.mjs",
     "scripts/m1-input-plan.mjs",
     "scripts/m1-experiment-proof.mjs",
-    "scripts/m1-history-get.mjs"
+    "scripts/m1-history-get.mjs",
+    "config/m1-evidence-roots.json",
+    "scripts/m1-preparation.mjs"
   ]
 }

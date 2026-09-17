@@ -111,7 +111,8 @@ test('index preserves empty, incomplete, late, expired, failed and corrupt state
   const prep = await newRun(f.runsRoot);
   assert.equal((await f.reader.readIndex()).runs.find(run => run.run_id === prep.run_id).reason, 'generation_incomplete');
   await writeFile(join(prep.runDir, 'preparation-failure.json'), json({ status: 'failed', at: new Date().toISOString(), error: f.sentinel, visibility: 'LOCAL_ONLY' }));
-  assert.equal((await f.reader.readIndex()).runs.find(run => run.run_id === prep.run_id).reason, 'preparation_failed');
+  // Non-production roots cannot acquire the production preparation exemption.
+  assert.equal((await f.reader.readIndex()).runs.find(run => run.run_id === prep.run_id).reason, 'archive_invalid');
   const validation = await f.add({ publish: false });
   await writeFile(join(validation.attempt.attemptDir, 'validation-result.json'), json({ status: 'failed', error: f.sentinel }));
   assert.equal((await f.reader.readIndex()).runs.find(run => run.run_id === validation.run_id).reason, 'validation_failed');

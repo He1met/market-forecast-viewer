@@ -11,6 +11,7 @@ import { createOutcomeStore } from './m1-outcome-store.mjs';
 import { auditCodexEvents } from './m1-forecast.mjs';
 import { modelArguments } from './m1-model.mjs';
 import {readLegacyClosure} from './m1-closures.mjs';
+import {readPreparationFailure} from './m1-preparation.mjs';
 import {dataReference} from './m1-files.mjs';import{effectiveEvents}from'./m1-supplementary.mjs';
 
 const defaultRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -153,6 +154,8 @@ export function createDisplayReader({ root = defaultRoot, dataRoot = process.env
   /** Two exhausted failures, or an independently reviewed historical closure.
    * A single completed attempt alone never proves run closure. */
   async function readScoringRun(id) {
+    const preparation=await readPreparationFailure({codeRoot:root,dataRoot,runId:id,runsRoot});
+    if(preparation){check(preparation.status==='preparation_failed_not_scoreable','PREPARATION_FAILURE_UNPROVEN');return preparation;}
     const directory = await preflight(id);
     check(!(await exists(join(directory, 'preparation-failure.json'))), 'SCORING_FAILURE_UNPROVEN');
     // Even a dangling symlink or partial publication must take the strict path.
@@ -245,8 +248,7 @@ export function createDisplayReader({ root = defaultRoot, dataRoot = process.env
       const directory = runDirectory(id);
       state.created_at = (await metadata(id)).created_at;
       if (await exists(join(directory, 'preparation-failure.json'))) {
-        const failed = await json(join(directory, 'preparation-failure.json'));
-        check(failed.status === 'failed' && iso(failed.at));
+        await readPreparationFailure({codeRoot:root,dataRoot,runId:id,runsRoot});
         return { ...state, status: 'failed', reason: 'preparation_failed' };
       }
       if (!(await exists(join(directory, 'manifest.json')))) return { ...state, status: 'incomplete', reason: 'generation_incomplete' };
@@ -357,7 +359,8 @@ export function createDisplayReader({ root = defaultRoot, dataRoot = process.env
     });
   }
   const listRunIds=async()=>await exists(runsRoot)?(await readdir(await safePath(runsRoot,true))).filter(id=>runIdSchema.safeParse(id).success).sort().reverse():[];
-  return { readRun, readScoringRun, readIndex, readRuntime,listRunIds,runState };
+  const readPreparationState=id=>readPreparationFailure({codeRoot:root,dataRoot,runId:id,runsRoot});
+  return { readRun, readScoringRun, readPreparationState, readIndex, readRuntime,listRunIds,runState };
 }
 
 /** A tiny Vite middleware used identically by dev and preview, without a static archive mount. */

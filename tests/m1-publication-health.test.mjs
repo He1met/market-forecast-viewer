@@ -44,3 +44,10 @@ test('two missed slots alert once; hourly reinspection is not a second miss; unk
  for(const h of [await health(make(),{paused:true}),await health(make([[id(),new Error('HASH_MISMATCH')]]))])assert.equal((await observePublicationHealth(store,h,{observationId:'unknown',guard})).pending.length,1);
  const recovery=await health(make([[id(),good]]),{now:due+3600000});assert.equal((await observePublicationHealth(store,recovery,{observationId:'recovered',guard})).pending.at(-1).kind,'recovery');
 });
+
+test('confirmed preparation failure is a missing publication, never current; ambiguous slot stays unknown',async()=>{
+ const reader=make([[id(),new Error('MANIFEST_MISSING')]]);
+ reader.readPreparationState=async()=>({status:'preparation_failed_not_scoreable',slot_id:scheduledSlot(anchor).slot_id});
+ assert.equal((await health(reader)).status,'stalled');
+ for(const value of [{status:'unverified_preparation_failure'},{status:'preparation_failed_not_scoreable',slot_id:'wrong'}]){reader.readPreparationState=async()=>value;assert.equal((await health(reader)).status,'unknown');}
+});

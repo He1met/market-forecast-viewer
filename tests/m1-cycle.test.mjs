@@ -35,3 +35,10 @@ test('experiment policy mismatch pauses candidate but still completes production
  freeze:async({policy})=>{assert.deepEqual(policy,current);return{};},generate:async()=>{generated++;return{forecast:{run_id:'SYNTHETIC'}};},publishIndex:async()=>{}});
  assert.equal(result.status,'completed');assert.equal(generated,1);assert.equal(await store.paused(),true);
 });
+
+test('preparation failure binds observation to receipt and never starts model or retries slot',async t=>{
+ const {root,port}=await fixture(t);let count=0;
+ const bound={run_id:'SYNTHETIC',receipt_sha256:'f'.repeat(64)},options={dataRoot:root,mutexPort:port,releaseId:'a'.repeat(64),clock:()=>Date.parse('2026-09-15T01:47:00Z'),freeze:async({slot,preparationContext})=>{count++;assert.equal(preparationContext.slotId,slot.slot_id);assert.equal(preparationContext.releaseId,'a'.repeat(64));assert.match(preparationContext.observationId,/^[a-f0-9-]{36}$/);throw Object.assign(Error('SYNTHETIC preparation'),{preparation_failure:bound});},generate:async()=>assert.fail('must not generate'),publishIndex:async()=>assert.fail('must not publish')};
+ assert.deepEqual((await cycle(options)).preparation_failure,bound);assert.equal((await cycle(options)).reason,'duplicate_slot');assert.equal(count,1);
+ const observations=await fs.readdir(path.join(root,'m1-observations'));const results=await Promise.all(observations.map(id=>fs.readFile(path.join(root,'m1-observations',id,'result.json')).then(JSON.parse)));assert.deepEqual(results.find(x=>x.status==='failed').preparation_failure,bound);
+});
