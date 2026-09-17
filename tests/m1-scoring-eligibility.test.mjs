@@ -8,6 +8,8 @@ import {requireEvidence} from '../scripts/evidence-context.mjs';
 import {newRun,freezeInput,prepareAttempt,completeAttempt,publishRun} from '../scripts/m1-archive.mjs';
 import {createDisplayReader} from '../scripts/m1-display.mjs';
 import {ops,scoreOldForecasts,scanOpsBatch} from '../scripts/m1-ops.mjs';
+import {auditCodexEvents} from '../scripts/m1-forecast.mjs';
+import {modelArguments} from '../scripts/m1-model.mjs';
 import {alertStore} from '../scripts/m1-alerts.mjs';
 
 const context=requireEvidence(),codeRoot=context.workspace,hash=x=>createHash('sha256').update(x).digest('hex'),guard=async()=>{};
@@ -21,18 +23,30 @@ async function fixture(t){
  await fs.cp(path.join(codeRoot,'artifacts/data-source/SYNTHETIC'),path.join(dataRoot,'data-source/SYNTHETIC'),{recursive:true});
  const input=await read(path.join(template,'input.json')),schema=await read(path.join(template,'output-schema.json')),raw=await fs.readFile(path.join(template,'attempt-001/raw-output.json'));
  const source=path.join(codeRoot,'src/m1-contracts.ts');
- const provenance={code_sha256:{[source]:hash(await fs.readFile(source))}};
- async function add({role='production',count=2,success=false,publish=false,open=false,audit=true}={}){
+ const provenance={code_sha256:{[source]:hash(await fs.readFile(source)),'scripts/m1-forecast.mjs':hash(await fs.readFile(path.join(codeRoot,'scripts/m1-forecast.mjs')))}};
+ async function add({role='production',count=2,success=false,publish=false,open=false,audit=true,legacy=false}={}){
   const runsRoot=path.join(dataRoot,role==='production'?'forecast-runs':'m1-candidates');
   const run=await newRun(runsRoot);await freezeInput(run.runDir,input,'SYNTHETIC ELIGIBILITY ONLY',schema,provenance);
   for(let i=0;i<count;i++){
    const a=await prepareAttempt(run.runDir);if(open&&i===count-1)break;
    await fs.writeFile(a.rawFile,raw);
-   let event_audit;
-   if(audit){const stream='SYNTHETIC rejected event\n',invocation='{"synthetic":true}';await fs.writeFile(path.join(a.attemptDir,'events.jsonl'),stream);await fs.writeFile(path.join(a.attemptDir,'invocation.json'),invocation);event_audit={schema:'MFV:CODEX_EVENT_AUDIT:v1',events_sha256:hash(stream),invocation_sha256:hash(invocation),failed:false,turn_completed:true,unexpected_event_count:success?0:1};}
-   const info={exit_code:success?0:-1,error:success?null:'MODEL_ATTEMPT_REJECTED',cli_exit_code:audit?0:success?0:-1,...(event_audit?{event_audit}:{}),model_identity_visibility:'not_exposed_by_jsonl',model_config:{provider:'official_codex',selection:'existing_local_cli_configuration',cli_version:'codex-cli 0.0.0-synthetic-test',auth_method:'chatgpt_verified',sandbox:'read-only',output_schema:true,startup_warning_count:0}};
+   const thread='SYNTHETIC-THREAD-'+a.attempt_id,workspace=path.join(a.attemptDir,'model-work'),cli_version='codex-cli 0.154.0-alpha.6.2';
+   const invocation={schema:'MFV:MODEL_INVOCATION:v1',args:modelArguments({workspace,schema:path.join(run.runDir,'output-schema.json'),output:a.rawFile}),working_directory:workspace,cli_version,requested_model:'gpt-6-astra',requested_reasoning:'medium',provider:'official_codex',frozen_input_sha256:hash(await fs.readFile(path.join(run.runDir,'input.json')))};
+   const notice='Code Mode is unavailable because code-mode host is disabled. Code mode will fail closed; enable `features.code_mode_host` and install `codex-code-mode-host`.';
+   const events=[{type:'thread.started',thread_id:thread},...(!success?[{type:'item.completed',item:legacy?{id:'item_0',type:'error',message:notice}:{id:'item_0',type:'command_execution',command:'SYNTHETIC forbidden tool'}}]:[]),{type:'turn.started'},{type:'item.completed',item:{id:'item_1',type:'agent_message',text:raw.toString()}},{type:'turn.completed',usage:{input_tokens:1,output_tokens:1}}];
+   const stream=events.map(e=>JSON.stringify(e)).join('\n')+'\n',invocationBytes=JSON.stringify(invocation);await fs.writeFile(path.join(a.attemptDir,'events.jsonl'),stream);await fs.writeFile(path.join(a.attemptDir,'invocation.json'),invocationBytes);
+   const parsed=auditCodexEvents(stream,legacy?undefined:{kind:'installed_frozen_input',cli_version,args:invocation.args});
+   const event_audit={schema:'MFV:CODEX_EVENT_AUDIT:v1',events_sha256:hash(stream),invocation_sha256:hash(invocationBytes),cli_version,controlled_disabled_context:parsed.controlled_disabled_context,startup_notice_count:parsed.startup_notice_count,startup_notices:parsed.startup_notices,unexpected_event_count:parsed.unexpected_count,unexpected_tool_count:parsed.unexpected_tool_count,turn_completed:parsed.turn_completed,failed:parsed.failed};
+   const info={exit_code:success?0:-1,error:success?null:'MODEL_ATTEMPT_REJECTED',cli_exit_code:0,...(audit&&!legacy?{event_audit}:{}),unexpected_tool_events:parsed.unexpected_count,turn_completed:legacy?null:parsed.turn_completed,model_thread_id:thread,model_identity_visibility:'not_exposed_by_jsonl',model_config:{provider:'official_codex',selection:'existing_local_cli_configuration',cli_version,auth_method:'chatgpt_verified',sandbox:'read-only',output_schema:true,startup_warning_count:parsed.startup_warning_count}};
    await completeAttempt(run.runDir,a.attempt_id,info);
    if(publish)await publishRun(run.runDir,a.rawFile,{attempt_id:a.attempt_id});
+  }
+  if(legacy){
+   // Synthetic migration fixture: reproduce the old frozen parser identity and
+   // rebind its frozen/attempt hashes; never alter a real archive.
+   const file=path.join(run.runDir,'provenance.json'),v=await read(file);v.code_sha256['scripts/m1-forecast.mjs']='9016c56108a71f3daacbaef25db705ab306a06ac4600889712ab892a680d7a4d';await write(file,v);
+   const mfile=path.join(run.runDir,'manifest.json'),m=await read(mfile);m.files['provenance.json']=hash(await fs.readFile(file));await write(mfile,m);
+   for(const attempt of ['attempt-001','attempt-002']){const startFile=path.join(run.runDir,attempt,'started.json'),start=await read(startFile);start.frozen_manifest_sha256=hash(await fs.readFile(mfile));await write(startFile,start);const receiptFile=path.join(run.runDir,attempt,'receipt.json'),receipt=await read(receiptFile);receipt.started_sha256=hash(await fs.readFile(startFile));await write(receiptFile,receipt);}
   }
   return{...run,reader:createDisplayReader({root:codeRoot,dataRoot,runsRoot})};
  }
@@ -41,7 +55,7 @@ async function fixture(t){
 async function freePort(){const s=net.createServer();await new Promise(r=>s.listen(0,'127.0.0.1',r));const port=s.address().port;await new Promise(r=>s.close(r));return port;}
 
 test('SYNTHETIC ops production/candidate and forecast fallback retire only scoring failures, without capture or archive changes',async t=>{
- const f=await fixture(t),p=await f.add({audit:true}),candidate=await f.add({role:'candidate',audit:true});
+ const f=await fixture(t),p=await f.add({legacy:true}),candidate=await f.add({role:'candidate',audit:true});
  const beforeP=await inventory(p.runDir),beforeC=await inventory(candidate.runDir);
  for(const [scope,role,id]of [['ops','production',p.run_id],['ops','candidate',candidate.run_id],['forecast-fallback','production',p.run_id]])await write(path.join(f.dataRoot,`m1-control/${scope}-${role}-cursor.json`),{offset:0,unresolved:[{run_id:id,reason:'PUBLICATION_MISSING'}]});
  const execution=alertStore(f.dataRoot,{stream:'execution'});await execution.observe({task:'forecast',observationId:'SYNTHETIC_FAILURE',at:new Date().toISOString(),confirmed:true,condition:{code:'FORECAST_FAILURE',object:'forecast',severity:'warning'},guard});const alerts=await fs.readFile(path.join(f.dataRoot,'m1-control/execution-alerts.json'));
@@ -74,6 +88,10 @@ test('SYNTHETIC interrupted, one failed, successful unpublished and preparation 
  const forged=await f.add({count:2,success:true});
  for(const attempt of ['attempt-001','attempt-002']){const file=path.join(forged.runDir,attempt,'receipt.json'),v=await read(file);v.exit_code=-1;v.error='MODEL_ATTEMPT_REJECTED';await write(file,v);}
  await assert.rejects(forged.reader.readScoringRun(forged.run_id),/SCORING_FAILURE_UNPROVEN/);
+ for(const mutation of ['failed','unexpected_event_count']){
+  for(const attempt of ['attempt-001','attempt-002']){const file=path.join(forged.runDir,attempt,'receipt.json'),v=await read(file);v.event_audit[mutation]=mutation==='failed'?true:1;await write(file,v);}
+  await assert.rejects(forged.reader.readScoringRun(forged.run_id),/SCORING_AUDIT_MISMATCH/);
+ }
  const r=await f.add();await write(path.join(r.runDir,'preparation-failure.json'),{status:'failed',at:new Date().toISOString()});await assert.rejects(r.reader.readScoringRun(r.run_id),/SCORING_FAILURE_UNPROVEN/);
  const published=await f.add({count:1,success:true,publish:true});await write(path.join(published.runDir,'preparation-failure.json'),{status:'failed',at:new Date().toISOString()});await assert.rejects(published.reader.readScoringRun(published.run_id),/SCORING_FAILURE_UNPROVEN/);
 });
@@ -101,4 +119,16 @@ test('SYNTHETIC publication traces contradict failed attempts; missing entire ru
  await write(path.join(f.dataRoot,'m1-projections/index.json'),{schema:'MFV:PROJECTIONS:v1',runs:[{run_id:r.run_id,status:'valid',published_at:new Date().toISOString()}]});await assert.rejects(r.reader.readScoringRun(r.run_id),/SCORING_PUBLICATION_EVIDENCE/);
  await write(path.join(f.dataRoot,'m1-control/ops-production-cursor.json'),{offset:0,unresolved:[{run_id:r.run_id,reason:'PUBLICATION_MISSING'}]});await fs.rm(r.runDir,{recursive:true});
  const batch=await scanOpsBatch({dataRoot:f.dataRoot,role:'production',ids:[],guard,visit:()=>{throw Error('UNREACHABLE');}});assert.equal(batch.unresolved[0].reason,'archive_missing');
+});
+
+
+test('SYNTHETIC legacy rejection requires its exact parser, notice, invocation and old receipt semantics',async t=>{
+ const f=await fixture(t);
+ for(const role of ['production','candidate']){const r=await f.add({role,legacy:true});assert.equal((await r.reader.readScoringRun(r.run_id)).status,'terminal_failed_not_scoreable');}
+ for(const mutate of [
+  async r=>{const file=path.join(r.runDir,'attempt-001/events.jsonl'),lines=(await fs.readFile(file,'utf8')).trim().split('\n').map(JSON.parse);lines.splice(1,1);await fs.writeFile(file,lines.map(x=>JSON.stringify(x)).join('\n'));},
+  async r=>{const file=path.join(r.runDir,'attempt-001/receipt.json'),v=await read(file);v.unexpected_tool_events=0;await write(file,v);},
+  async r=>{const file=path.join(r.runDir,'attempt-001/invocation.json'),v=await read(file);v.frozen_input_sha256='a'.repeat(64);await write(file,v);},
+  async r=>{const file=path.join(r.runDir,'attempt-001/invocation.json'),v=await read(file);v.args.push('--enable','code_mode');await write(file,v);},
+ ]){const r=await f.add({legacy:true});await mutate(r);await assert.rejects(r.reader.readScoringRun(r.run_id));}
 });

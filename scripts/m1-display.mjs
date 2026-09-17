@@ -8,6 +8,8 @@ import { rawOutputJsonSchema, validateModelOutput } from '../src/m1-contracts.ts
 import { displayRunSchema, indexSchema, publishedForecastSchema, runIdSchema, runtimeDisplaySchema } from '../src/m1-display.ts';
 import { readFrozen, readPublished } from './m1-archive.mjs';
 import { createOutcomeStore } from './m1-outcome-store.mjs';
+import { auditCodexEvents } from './m1-forecast.mjs';
+import { modelArguments } from './m1-model.mjs';
 import {dataReference} from './m1-files.mjs';import{effectiveEvents}from'./m1-supplementary.mjs';
 
 const defaultRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -184,24 +186,46 @@ export function createDisplayReader({ root = defaultRoot, dataRoot = process.env
         && receipt.started_at === start.started_at && receipt.started_sha256 === digest(await bytes(join(folder, 'started.json'))), 'SCORING_RECEIPT_MISMATCH');
       check(iso(start.started_at) && iso(receipt.ended_at) && Date.parse(start.started_at) >= Date.parse(endedAt)
         && Date.parse(receipt.ended_at) >= Date.parse(start.started_at), 'SCORING_ATTEMPT_TIME_INVALID');
-      // Support the installed generator's audited rejection only. A receipt
-      // without its audit cannot prove this narrow terminal-failure case.
-      check(receipt.exit_code === -1 && receipt.error === 'MODEL_ATTEMPT_REJECTED'
-        && receipt.event_audit, 'SCORING_FAILURE_UNPROVEN');
+      check(receipt.exit_code === -1 && receipt.error === 'MODEL_ATTEMPT_REJECTED', 'SCORING_FAILURE_UNPROVEN');
       const raw = join(folder, 'raw-output.json');
       if (receipt.raw_output_sha256 === null) check(!(await exists(raw)), 'SCORING_RAW_HASH_MISMATCH');
       else check(typeof receipt.raw_output_sha256 === 'string' && /^[a-f0-9]{64}$/.test(receipt.raw_output_sha256)
         && digest(await bytes(raw)) === receipt.raw_output_sha256, 'SCORING_RAW_HASH_MISMATCH');
-      if (receipt.event_audit) {
-        const audit = receipt.event_audit;
-        check(audit.schema === 'MFV:CODEX_EVENT_AUDIT:v1'
-          && typeof audit.failed === 'boolean' && typeof audit.turn_completed === 'boolean'
-          && Number.isSafeInteger(audit.unexpected_event_count) && audit.unexpected_event_count >= 0
-          && (Number.isInteger(receipt.cli_exit_code) || receipt.cli_exit_code === null)
-          && digest(await bytes(join(folder, 'events.jsonl'))) === audit.events_sha256
-          && digest(await bytes(join(folder, 'invocation.json'))) === audit.invocation_sha256, 'SCORING_AUDIT_HASH_MISMATCH');
-        check(receipt.cli_exit_code !== 0 || receipt.timed_out === true || audit.failed === true
-          || audit.turn_completed === false || audit.unexpected_event_count > 0, 'SCORING_FAILURE_UNPROVEN');
+      const stream = (await bytes(join(folder, 'events.jsonl'))).toString('utf8');
+      // Malformed/truncated JSONL is not proof of a completed failed attempt.
+      for (const line of stream.trim().split('\n')) parseStrict(line);
+      const invocationBytes = await bytes(join(folder, 'invocation.json')), invocation = parseStrict(invocationBytes.toString('utf8'));
+      const workspace = invocation.working_directory, originalRun = typeof workspace === 'string' ? dirname(dirname(workspace)) : '';
+      check(invocation.schema === 'MFV:MODEL_INVOCATION:v1' && invocation.provider === 'official_codex'
+        && invocation.cli_version === receipt.model_config?.cli_version && invocation.cli_version === 'codex-cli 0.154.0-alpha.6.2'
+        && invocation.requested_model === 'gpt-6-astra' && invocation.requested_reasoning === 'medium'
+        && invocation.frozen_input_sha256 === frozen.manifest.files['input.json']
+        && typeof workspace === 'string' && isAbsolute(workspace) && originalRun.split(sep).at(-1) === id
+        && workspace === join(originalRun, attempt, 'model-work')
+        && canonical(invocation.args) === canonical(modelArguments({workspace,schema:join(originalRun,'output-schema.json'),output:join(originalRun,attempt,'raw-output.json')})), 'SCORING_INVOCATION_MISMATCH');
+      const context = {kind:'installed_frozen_input',cli_version:invocation.cli_version,args:invocation.args};
+      const audit = auditCodexEvents(stream, context), parser = frozen.provenance.code_sha256?.['scripts/m1-forecast.mjs'];
+      check(audit.events.some(event => event?.type === 'thread.started' && event.thread_id === receipt.model_thread_id), 'SCORING_THREAD_MISMATCH');
+      if (parser === '9016c56108a71f3daacbaef25db705ab306a06ac4600889712ab892a680d7a4d' && receipt.event_audit === undefined) {
+        // Exact legacy parser: no context exemption. Recognize only the known
+        // pre-turn disabled-host notice rejection, never retrofit its receipt.
+        const legacy = auditCodexEvents(stream);
+        check(legacy.unexpected_count === 1 && !legacy.failed && legacy.turn_completed
+          && audit.controlled_disabled_context && audit.startup_notice_count === 1
+          && audit.unexpected_count === 0 && !audit.failed && audit.turn_completed
+          && receipt.unexpected_tool_events === legacy.unexpected_count
+          && receipt.model_config.startup_warning_count === legacy.startup_warning_count
+          && receipt.turn_completed === null && receipt.cli_exit_code === 0 && receipt.timed_out === false, 'SCORING_FAILURE_UNPROVEN');
+      } else {
+        check(parser === 'b280c281ad131160aacf1fc20b0bd893ccc73e2e13e9d794f1a444f0c64212da', 'SCORING_PARSER_UNSUPPORTED');
+        const expected = {schema:'MFV:CODEX_EVENT_AUDIT:v1',events_sha256:digest(stream),invocation_sha256:digest(invocationBytes),
+          cli_version:invocation.cli_version,controlled_disabled_context:audit.controlled_disabled_context,startup_notice_count:audit.startup_notice_count,
+          startup_notices:audit.startup_notices,unexpected_event_count:audit.unexpected_count,unexpected_tool_count:audit.unexpected_tool_count,
+          turn_completed:audit.turn_completed,failed:audit.failed};
+        check(canonical(receipt.event_audit) === canonical(expected), 'SCORING_AUDIT_MISMATCH');
+        check(receipt.unexpected_tool_events === audit.unexpected_count && receipt.turn_completed === audit.turn_completed
+          && receipt.model_config.startup_warning_count === audit.startup_warning_count
+          && (audit.failed || audit.unexpected_count > 0), 'SCORING_FAILURE_UNPROVEN');
       }
       endedAt = receipt.ended_at;
     }
