@@ -20,10 +20,12 @@ test('SYNTHETIC业务状态展示未配置、运行、失败、代码变更跳�
  await page.route('**/api/m1/index',route=>route.fulfill({json:emptyIndex()}));
  await page.route('**/api/m1/runtime',route=>route.fulfill({json:value}));
  await openExperiment(page);await expect(page.locator('#runtime-details')).toContainText('业务任务未配置');
+ await expect(page.locator('#runtime-details')).not.toContainText('官方任务配置未接入本页');
  await expect(page.locator('#runtime-panel')).toContainText('关闭页面不会停止业务任务');
  value=runtime();await refresh(page);await expect(page.locator('#runtime-status')).toHaveText('运行中');
  await expect(page.locator('#runtime-details')).toContainText('每 2 小时');await expect(page.locator('#runtime-details')).toContainText('调度时区：未知');
  await expect(page.locator('#runtime-details')).toContainText('回读时启用');await expect(page.locator('#runtime-details')).toContainText('下次官方计划时间：未知');
+ await expect(page.locator('#runtime-details')).not.toContainText('官方任务配置未接入本页');
  value.latest_attempt={...value.latest_attempt!,status:'failed',completed_at:at,reason:'runtime_failed'};
  await refresh(page);await expect(page.locator('#runtime-status')).toHaveText('运行失败');
  await expect(page.locator('#runtime-details')).toContainText('旧预报首次发布时间不变');await expect(page.locator('#runtime-details')).toContainText('最近业务成功：'+at);
@@ -98,7 +100,13 @@ test('SYNTHETIC安装版缺产出与实际调用状态分开显示',async({page}
  await page.route('**/api/m1/index',route=>route.fulfill({json:emptyIndex()}));
  await page.route('**/api/m1/runtime',route=>route.fulfill({json:value}));
  await openExperiment(page);await expect(page.locator('#runtime-details')).toContainText('更新停滞：到期时段缺少及时有效预报');
+ await expect(page.locator('#runtime-details')).toContainText('官方任务配置未接入本页；请在Codex任务中查看启用状态。');
+ await expect(page.locator('#runtime-details')).not.toContainText('业务任务未配置');
+ await expect(page.locator('#runtime-details')).not.toContainText('回读时启用');
+ await expect(page.locator('#runtime-details')).toContainText('下次官方计划时间：未知');
  await expect(page.locator('#runtime-details')).toContainText('不代表官方任务实际触发或调用失败');
  const directory='artifacts/m14';await mkdir(directory,{recursive:true});await page.locator('#runtime-panel').screenshot({path:`${directory}/synthetic-missing-output-${info.project.name}.png`});
  value.paused=true;value.publication_health={...value.publication_health!,status:'paused',slots:[]};await refresh(page);await expect(page.locator('#runtime-details')).toContainText('暂停，不累计缺产出');
+ await expect(page.locator('#runtime-status')).toHaveText('本地暂停标记生效');
+ await expect(page.locator('#runtime-details')).toContainText('官方任务配置未接入本页；请在Codex任务中查看启用状态。');
 });
