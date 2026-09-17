@@ -19,7 +19,8 @@ export function createHistoryGetter({execute=exec, monotonic=()=>performance.now
   check(['forecast','outcome'].includes(kind)&&/^page-\d{3}\.json$/.test(name),'HISTORY_REQUEST_INVALID');
   check(deadline===Infinity||Number.isFinite(deadline),'HISTORY_DEADLINE_INVALID');
   const pageDeadline=Math.min(deadline,monotonic()+(kind==='forecast'?35000:30000));
-  const remaining=()=>pageDeadline-monotonic();
+  let requestDeadline=pageDeadline;
+  const remaining=()=>requestDeadline-monotonic();
   const guard=()=>{signal?.throwIfAborted();check(remaining()>=1,'HISTORY_PAGE_DEADLINE');};
   guard();await safePath(root,root);
   const parent=path.join(root,'request-attempts',name.slice(0,-5));
@@ -28,6 +29,7 @@ export function createHistoryGetter({execute=exec, monotonic=()=>performance.now
   await safePath(root,path.join(root,'request-attempts'));
   await fs.mkdir(parent,{mode:0o700});
   for(let attempt=1;attempt<=2;attempt++) {
+   if(attempt===2&&kind==='forecast')requestDeadline=Math.min(pageDeadline,deadline-90000);
    guard();
    const dir=path.join(parent,`attempt-00${attempt}`),response=path.join(dir,'response.bin');
    await fs.mkdir(dir,{mode:0o700});await safePath(root,dir);

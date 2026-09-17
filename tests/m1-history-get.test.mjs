@@ -93,3 +93,7 @@ test('forecast retry reserves model time after first failure, not merely at page
  const root=await fixture(t);let clock=0,count=0;const get=createHistoryGetter({monotonic:()=>clock,execute:async()=>{count++;clock=1001;throw error(35);}});
  await assert.rejects(get({url,file:path.join(root,'page-001.json'),kind:'forecast',deadline:91000}));assert.equal(count,1);
 });
+test('forecast second request timeout itself preserves the full model reserve',async t=>{
+ const root=await fixture(t);let clock=0;const timeouts=[];const get=createHistoryGetter({monotonic:()=>clock,execute:async(cmd,args,options)=>{timeouts.push(options.timeout);if(timeouts.length===1){clock=1000;throw error(35);}await fs.writeFile(output(args),'SUCCESS');return{stdout:'200'};}});
+ await get({url,file:path.join(root,'page-001.json'),kind:'forecast',deadline:95000});assert.deepEqual(timeouts,[35000,4000]);
+});
