@@ -40,7 +40,9 @@ export async function scoreOldForecasts({codeRoot,dataRoot,mutex,signal,deadline
  const reader=createDisplayReader({root:codeRoot,dataRoot}),store=createOutcomeStore({root:codeRoot,dataRoot});
  const ids=await reader.listRunIds();await guard();
  const batch=await scanOpsBatch({dataRoot,role:'production',cursorScope:'forecast-fallback',ids,guard,limit:2,shouldStop:()=>signal.aborted||performance.now()>=deadline,visit:async runId=>{
-  await guard();const run=await reader.readRun(runId);await guard();
+  await guard();const eligibility=await reader.readScoringRun(runId);await guard();
+  if(eligibility.status==='terminal_failed_not_scoreable')return{status:'ok',reason:eligibility.status};
+  const run=eligibility.run;
   if(run.forecast.status!=='valid')return{status:'ok',reason:'ineligible_forecast'};
   if(run.evaluation.status==='available'&&run.evaluation.result.windows.h24.status==='mature')return{status:'ok',reason:'already_mature'};
   const capture=await store.capture(run,{transport:outcomeTransport,signal,deadline});
@@ -74,7 +76,9 @@ export async function ops({codeRoot,dataRoot,port,releaseId,policy,trigger='manu
    }
    const reader=readers[role],runsRoot=path.join(dataRoot,role==='production'?'forecast-runs':'m1-candidates'),store=createOutcomeStore({root:codeRoot,dataRoot,runsRoot});
    const batch=await scanOpsBatch({dataRoot,role,ids:await reader.listRunIds(),guard,limit:Math.min(8,16-processed),shouldStop:()=>performance.now()-start>85000,visit:async runId=>{
-    const run=await reader.readRun(runId);
+    const eligibility=await reader.readScoringRun(runId);await guard();
+    if(eligibility.status==='terminal_failed_not_scoreable')return{status:'ok',reason:eligibility.status};
+    const run=eligibility.run;
     if(run.forecast.status!=='valid')return{status:'ok',reason:'ineligible_forecast'};
     if(run.evaluation.status==='available'&&run.evaluation.result.windows.h24.status==='mature'){
      if(role==='production')await caseStore({codeRoot,dataRoot}).create(run.run_id,run.evaluation.revision_id);

@@ -8,6 +8,8 @@ import { rawOutputJsonSchema, validateModelOutput } from '../src/m1-contracts.ts
 import { displayRunSchema, indexSchema, publishedForecastSchema, runIdSchema, runtimeDisplaySchema } from '../src/m1-display.ts';
 import { readFrozen, readPublished } from './m1-archive.mjs';
 import { createOutcomeStore } from './m1-outcome-store.mjs';
+import { auditCodexEvents } from './m1-forecast.mjs';
+import { modelArguments } from './m1-model.mjs';
 import {dataReference} from './m1-files.mjs';import{effectiveEvents}from'./m1-supplementary.mjs';
 
 const defaultRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -147,6 +149,88 @@ export function createDisplayReader({ root = defaultRoot, dataRoot = process.env
     });
     return includeEvaluation ? displayRunSchema.parse({ ...result, evaluation: await createOutcomeStore({ root, dataRoot, runsRoot }).readLatest(result) }) : result;
   }
+  /** Only two exhausted, fully recorded failures can bypass publication reads.
+   * This is deliberately narrower than the display's failed state: preparation,
+   * validation failures and interrupted/one-attempt runs remain unresolved. */
+  async function readScoringRun(id) {
+    const directory = await preflight(id);
+    check(!(await exists(join(directory, 'preparation-failure.json'))), 'SCORING_FAILURE_UNPROVEN');
+    // Even a dangling symlink or partial publication must take the strict path.
+    if (await exists(join(directory, 'publication'))) return { status: 'readable', run: await readRun(id) };
+    const frozen = await readFrozen(directory);
+    check(canonical(frozen.schema) === canonical(rawOutputJsonSchema), 'SCORING_SCHEMA_MISMATCH');
+    await validateHistory(frozen.input.history);
+    check(iso(frozen.manifest.information_frozen_at), 'SCORING_FREEZE_TIME_INVALID');
+    const entries = await readdir(directory);
+    check(!entries.some(name => name.startsWith('.publication-') || /^attempt-/.test(name) && !['attempt-001', 'attempt-002'].includes(name)), 'SCORING_FAILURE_UNPROVEN');
+    check(!(await exists(join(dataRoot, 'm1-outcomes', id))), 'SCORING_PUBLICATION_EVIDENCE');
+    const successFile = join(dataRoot, 'm1-task-status', 'last-forecast-success.json');
+    if (await exists(successFile)) check((await json(successFile)).forecast_id !== id, 'SCORING_PUBLICATION_EVIDENCE');
+    const indexFile = join(dataRoot, 'm1-projections', 'index.json');
+    if (await exists(indexFile)) {
+      const index = await json(indexFile);
+      check(index.schema === 'MFV:PROJECTIONS:v1' && Array.isArray(index.runs), 'SCORING_INDEX_INVALID');
+      check(index.latest_run_id !== id && !index.runs.some(row => row.run_id === id &&
+        (row.published_at != null || row.projection != null || ['valid', 'late'].includes(row.status))), 'SCORING_PUBLICATION_EVIDENCE');
+    }
+    let endedAt = frozen.manifest.information_frozen_at;
+    for (const attempt of ['attempt-001', 'attempt-002']) {
+      const folder = join(directory, attempt);
+      await safePath(folder, true);
+      check(!(await exists(join(folder, 'validation-result.json'))), 'SCORING_FAILURE_UNPROVEN');
+      const start = await json(join(folder, 'started.json')), receipt = await json(join(folder, 'receipt.json'));
+      check(start.schema === 'MFV:M1_ATTEMPT_START:v1' && start.run_id === id && start.attempt_id === attempt
+        && start.input_sha256 === frozen.manifest.files['input.json']
+        && start.frozen_manifest_sha256 === digest(await bytes(join(directory, 'manifest.json'))), 'SCORING_ATTEMPT_MISMATCH');
+      check(receipt.schema === 'MFV:M1_ATTEMPT_RESULT:v1' && receipt.run_id === id && receipt.attempt_id === attempt
+        && receipt.started_at === start.started_at && receipt.started_sha256 === digest(await bytes(join(folder, 'started.json'))), 'SCORING_RECEIPT_MISMATCH');
+      check(iso(start.started_at) && iso(receipt.ended_at) && Date.parse(start.started_at) >= Date.parse(endedAt)
+        && Date.parse(receipt.ended_at) >= Date.parse(start.started_at), 'SCORING_ATTEMPT_TIME_INVALID');
+      check(receipt.exit_code === -1 && receipt.error === 'MODEL_ATTEMPT_REJECTED', 'SCORING_FAILURE_UNPROVEN');
+      const raw = join(folder, 'raw-output.json');
+      if (receipt.raw_output_sha256 === null) check(!(await exists(raw)), 'SCORING_RAW_HASH_MISMATCH');
+      else check(typeof receipt.raw_output_sha256 === 'string' && /^[a-f0-9]{64}$/.test(receipt.raw_output_sha256)
+        && digest(await bytes(raw)) === receipt.raw_output_sha256, 'SCORING_RAW_HASH_MISMATCH');
+      const stream = (await bytes(join(folder, 'events.jsonl'))).toString('utf8');
+      // Malformed/truncated JSONL is not proof of a completed failed attempt.
+      for (const line of stream.trim().split('\n')) parseStrict(line);
+      const invocationBytes = await bytes(join(folder, 'invocation.json')), invocation = parseStrict(invocationBytes.toString('utf8'));
+      const workspace = invocation.working_directory, originalRun = typeof workspace === 'string' ? dirname(dirname(workspace)) : '';
+      check(invocation.schema === 'MFV:MODEL_INVOCATION:v1' && invocation.provider === 'official_codex'
+        && invocation.cli_version === receipt.model_config?.cli_version && invocation.cli_version === 'codex-cli 0.154.0-alpha.6.2'
+        && invocation.requested_model === 'gpt-6-astra' && invocation.requested_reasoning === 'medium'
+        && invocation.frozen_input_sha256 === frozen.manifest.files['input.json']
+        && typeof workspace === 'string' && isAbsolute(workspace) && originalRun.split(sep).at(-1) === id
+        && workspace === join(originalRun, attempt, 'model-work')
+        && canonical(invocation.args) === canonical(modelArguments({workspace,schema:join(originalRun,'output-schema.json'),output:join(originalRun,attempt,'raw-output.json')})), 'SCORING_INVOCATION_MISMATCH');
+      const context = {kind:'installed_frozen_input',cli_version:invocation.cli_version,args:invocation.args};
+      const audit = auditCodexEvents(stream, context), parser = frozen.provenance.code_sha256?.['scripts/m1-forecast.mjs'];
+      check(audit.events.some(event => event?.type === 'thread.started' && event.thread_id === receipt.model_thread_id), 'SCORING_THREAD_MISMATCH');
+      if (parser === '9016c56108a71f3daacbaef25db705ab306a06ac4600889712ab892a680d7a4d' && receipt.event_audit === undefined) {
+        // Exact legacy parser: no context exemption. Recognize only the known
+        // pre-turn disabled-host notice rejection, never retrofit its receipt.
+        const legacy = auditCodexEvents(stream);
+        check(legacy.unexpected_count === 1 && !legacy.failed && legacy.turn_completed
+          && audit.controlled_disabled_context && audit.startup_notice_count === 1
+          && audit.unexpected_count === 0 && !audit.failed && audit.turn_completed
+          && receipt.unexpected_tool_events === legacy.unexpected_count
+          && receipt.model_config.startup_warning_count === legacy.startup_warning_count
+          && receipt.turn_completed === null && receipt.cli_exit_code === 0 && receipt.timed_out === false, 'SCORING_FAILURE_UNPROVEN');
+      } else {
+        check(parser === 'b280c281ad131160aacf1fc20b0bd893ccc73e2e13e9d794f1a444f0c64212da', 'SCORING_PARSER_UNSUPPORTED');
+        const expected = {schema:'MFV:CODEX_EVENT_AUDIT:v1',events_sha256:digest(stream),invocation_sha256:digest(invocationBytes),
+          cli_version:invocation.cli_version,controlled_disabled_context:audit.controlled_disabled_context,startup_notice_count:audit.startup_notice_count,
+          startup_notices:audit.startup_notices,unexpected_event_count:audit.unexpected_count,unexpected_tool_count:audit.unexpected_tool_count,
+          turn_completed:audit.turn_completed,failed:audit.failed};
+        check(canonical(receipt.event_audit) === canonical(expected), 'SCORING_AUDIT_MISMATCH');
+        check(receipt.unexpected_tool_events === audit.unexpected_count && receipt.turn_completed === audit.turn_completed
+          && receipt.model_config.startup_warning_count === audit.startup_warning_count
+          && (audit.failed || audit.unexpected_count > 0), 'SCORING_FAILURE_UNPROVEN');
+      }
+      endedAt = receipt.ended_at;
+    }
+    return { status: 'terminal_failed_not_scoreable' };
+  }
   async function runState(id, checkedAt) {
     // A malformed run.json stays visible as invalid without returning its bytes/error.
     const stamp = id.match(/^m1-(\d{4})(\d\d)(\d\d)T(\d\d)(\d\d)(\d\d)(\d{3})Z/);
@@ -268,7 +352,7 @@ export function createDisplayReader({ root = defaultRoot, dataRoot = process.env
     });
   }
   const listRunIds=async()=>await exists(runsRoot)?(await readdir(await safePath(runsRoot,true))).filter(id=>runIdSchema.safeParse(id).success).sort().reverse():[];
-  return { readRun, readIndex, readRuntime,listRunIds,runState };
+  return { readRun, readScoringRun, readIndex, readRuntime,listRunIds,runState };
 }
 
 /** A tiny Vite middleware used identically by dev and preview, without a static archive mount. */
