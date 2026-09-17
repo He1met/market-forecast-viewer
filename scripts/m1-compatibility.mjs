@@ -5,7 +5,7 @@ import {promisify} from 'node:util';
 import {check, digest, canonical, safePath, readBytes} from './m1-files.mjs';
 import {verifyPackage} from './m1-package.mjs';
 const execute = promisify(execFile);
-const roots = ['forecast-runs', 'm1-candidates', 'm1-outcomes', 'm1-cases', 'm1-learning'];
+const roots = ['forecast-runs', 'm1-candidates', 'm1-outcomes', 'm1-cases', 'm1-learning', 'm1-closures'];
 // Called under the business mutex. Hash every archive byte, including historical
 // revisions and controls; never reuse an earlier compatibility receipt.
 export async function archiveSnapshot(dataRoot) {
@@ -28,9 +28,14 @@ import fs from 'node:fs/promises';import path from 'node:path';
 import {createDisplayReader} from './scripts/m1-display.mjs';
 import {createOutcomeStore} from './scripts/m1-outcome-store.mjs';
 import {caseStore} from './scripts/m1-cases.mjs';
+import {listClosureIds} from './scripts/m1-closures.mjs';
 const dataRoot=process.env.MFV_DATA_ROOT, root=process.cwd();
 const names=async p=>{try{return await fs.readdir(p);}catch(e){if(e.code==='ENOENT')return [];throw e;}};
-let runs=0,captures=0,revisions=0,cases=0,failed_runs=0;const known=new Set();
+let runs=0,captures=0,revisions=0,cases=0,failed_runs=0,closures=0;const known=new Set();
+for(const id of await listClosureIds(dataRoot)){
+ const result=await createDisplayReader({root,dataRoot}).readScoringRun(id);
+ if(result.status!=='historical_unpublished_closed_not_scoreable')throw Error('CLOSURE_COMPATIBILITY_INVALID');closures++;
+}
 for(const name of ['forecast-runs','m1-candidates']){
  const runsRoot=path.join(dataRoot,name),reader=createDisplayReader({root,dataRoot,runsRoot}),store=createOutcomeStore({root,dataRoot,runsRoot});
  for(const id of await names(runsRoot)){
@@ -49,7 +54,7 @@ for(const name of ['forecast-runs','m1-candidates']){
 }
 for(const id of await names(path.join(dataRoot,'m1-outcomes')))if(!known.has(id))throw Error('ORPHAN_OUTCOME');
 for(const id of await names(path.join(dataRoot,'m1-cases'))){await caseStore({codeRoot:root,dataRoot}).read(id);cases++;}
-console.log(JSON.stringify({status:'compatible',runs,captures,revisions,cases,failed_runs}));
+console.log(JSON.stringify({status:'compatible',runs,captures,revisions,cases,failed_runs,closures}));
 `;
 export async function verifyTargetArchives({packageRoot, dataRoot, releaseId}) {
  const manifest = await verifyPackage(packageRoot);
