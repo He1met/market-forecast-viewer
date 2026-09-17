@@ -4,9 +4,9 @@
 
 审查者在真实 GitHub formal review 中以一个 `mfv-closure-review` fenced JSON 块给出 `MFV:CLOSURE_REVIEW:v1`，decision 为 `historical_unpublished_closure_approved`，绑定 statement_sha256、reviewed_commit 和 closureImplementationFiles 所列六份实际实现文件 SHA。代码审查通过不自动等于封存批准。消费验证真实来源身份、review state/commit、每份字节和声明；未知schema/parser、重复JSON键、链接、路径逃逸、原目录任何增删改、开放尝试或成功/发布矛盾都拒绝。它只表示 `historical_unpublished_closed_not_scoreable`，原失败与执行告警保留，正常ops/fallback只推进自己的评分游标。
 
-来源快照是数据；离线读者不能证明 GitHub 当前无撤回，也不是密码学签名。安装/生产封存写入前，受控管理步骤必须 fresh GET 历史报告、当前规划、精确 formal review及其后续决定，核实身份、原字节、commit和无撤回。最终批准须同时绑定精确包和候选目录各文件SHA；用业务互斥保护完整原档再核、独占创建新目录/不可覆盖写入，现存目标必须停止核验，不覆盖修补；全部来源及review准备好后一次目录rename发布，失败保留现场不让评分消费半份记录。该步骤不改原预测目录，也不运行模型或评分。statement.proposed_at、review.submitted_at、安装写入收据时间和首次自然ops消费时间分别记录，不倒填历史终止。
+来源快照是数据；离线读者不能证明 GitHub 当前无撤回，也不是密码学签名。安装/生产封存写入前，受控管理步骤必须 fresh GET 历史报告、当前规划、精确 formal review及其后续决定，核实身份、原字节、commit和无撤回。本次授权范围及执行决定须同时绑定精确包和候选目录各文件SHA；用业务互斥保护完整原档再核、独占创建新目录/不可覆盖写入，现存目标必须停止核验，不覆盖修补；全部来源及review准备好后一次目录rename发布，失败保留现场不让评分消费半份记录。该步骤不改原预测目录，也不运行模型或评分。statement.proposed_at、review.submitted_at、安装写入收据时间和首次自然ops消费时间分别记录，不倒填历史终止。
 
-`m1-closures` 纳入受保护兼容快照及备份；目标包兼容和隔离恢复回放逐项消费验证，包括已回放对象的续接轮。没有对应读者或已审实现字节变化必须重新核验，不能静默忽略。仅复制不算恢复验证通过。当前Issue23交付只准备源码与候选；现运行包及生产数据根保持不变，切包及封存写入待最终精确批准。
+`m1-closures` 纳入受保护兼容快照及备份；目标包兼容和隔离恢复回放逐项消费验证，包括已回放对象的续接轮。没有对应读者或已审实现字节变化必须重新核验，不能静默忽略。仅复制不算恢复验证通过。Issue23已按上述真实用户授权完成d7d033/buildb16dfa切换与精确四文件封存写入，原档保留；维护备份恢复通过，首次自然消费另行核验。后续同类事项按持续授权及本次精确审查执行。
 
 ops生产/候选扫描与forecast fallback共用只读评分资格检查。只接受两次尝试已耗尽、冻结档与尝试收据/原输出一致的 `MODEL_ATTEMPT_REJECTED`，并从原JSONL与精确调用参数重算对应已支持版本的拒绝语义，且不存在publication、结果档或已发布索引/成功摘要等矛盾迹象；正常扫描返回 `terminal_failed_not_scoreable`，仅解除该对象的评分unresolved，不改变原失败或执行告警。
 
@@ -18,7 +18,7 @@ ops生产/候选扫描与forecast fallback共用只读评分资格检查。只�
 
 安装ops在业务互斥内检查展示服务，结果核对slot已完成也继续检查；ops暂停时不执行检查或重启，service_paused保持独立。只有确认自有服务退出才有界重启，未知端口不停止、不换端口。服务故障保存到ops观察的service字段及独立service告警流；结果核对成功不清除服务故障。暂停不是恢复证据。notifications包含服务pending事件，仍不声称实际通知送达。
 
-本页描述候选安装入口。当前工程尚在验证，业务维护 PAUSED 保留；命令存在不代表已部署、调度已运行或方法有效。原始输入输出与操作收据仅保存在 LOCAL_ONLY 位置。
+本页描述本地安装与维护入口。当前已获准自然业务继续，实时状态以安装指针、官方任务与实际收据为准；命令存在不代表已部署、调度已运行或方法有效。原始输入输出与操作收据仅保存在 LOCAL_ONLY 位置。
 
 ## 开发续接
 
@@ -26,11 +26,11 @@ ops生产/候选扫描与forecast fallback共用只读评分资格检查。只�
 
 ## 候选包与安装
 
-包从精确 Git 提交导出并重新构建，使用单独锁定的运行依赖；合成验证包标为 synthetic，禁止激活。开发 checkout、runtime_home、data_root 分开；runtime_home/current.json 只指向已核验 release。正式激活需要维护者对精确 build SHA/release ID 的批准来源；范围内合并已获2026-09-16用户持续授权，必要测试及独立审查通过后可正常squash，不得提前切包或恢复业务。
+包从精确 Git 提交导出并重新构建，使用单独锁定的运行依赖；合成验证包标为 synthetic，禁止激活。开发 checkout、runtime_home、data_root 分开；runtime_home/current.json 只指向已核验 release。正式激活必须绑定精确build SHA/release ID及真实授权来源；同类M1维护使用2026-09-17持续授权加本次独立审查/技术核验，无需逐包询问。范围内合并按既有持续授权执行，不得跳过测试、兼容、备份恢复或实际身份门禁。
 
 在本地填好安装配置并保留 forecast_paused、ops_paused、service_paused=true。backup.target 必须已经存在且在生产数据与运行目录之外；记录实际 device_id，未挂载或身份变化将拒绝备份，不创建替代目录。绝对本机路径只进入 installation.local.json。
 
-开发管理入口（参数以本地实际绝对路径和完整 SHA/ID 代入；先取得精确批准）：
+开发管理入口（参数以本地实际绝对路径和完整 SHA/ID 代入；先核持续授权适用范围及本次精确审查/技术条件）：
 
 ```sh
 npm run m1:release -- --commit FULL_COMMIT_SHA --destination ABSOLUTE_NEW_PACKAGE
@@ -58,7 +58,7 @@ launcher 每轮只读取一次 current；运行中不重新选择版本。foreca
 
 已持有端口但不健康的服务不会被自动杀掉；保留日志并报告。服务暂停与预测暂停独立。自动调度全部停止期间不能承诺实时故障通知。
 
-回退使用 `MFV_RUNTIME_HOME="RUNTIME_HOME" npm run m1:rollback -- --release PREVIOUS_RELEASE_ID`；底层参数为 `rollback RUNTIME_HOME PREVIOUS_RELEASE_ID`。精确目标必须是 previously approved 的旧 release，锁内用目标 reader 校验现存原档兼容性后才切指针，仍要求先停止自己的服务并保持业务暂停；旧证据不删除，恢复后重新核验 health/release/旧档回放，再由维护者决定恢复业务。首次安装没有已批准 previous release，实机回退为 NOT_AVAILABLE，不能报 PASS。
+回退使用 `MFV_RUNTIME_HOME="RUNTIME_HOME" npm run m1:rollback -- --release PREVIOUS_RELEASE_ID`；底层参数为 `rollback RUNTIME_HOME PREVIOUS_RELEASE_ID`。精确目标必须是 previously approved 的旧 release，锁内用目标 reader 校验现存原档兼容性后才切指针，仍要求先停止自己的服务并保持业务暂停；旧证据不删除，恢复后重新核验 health/release/旧档回放，同类范围且全部条件通过后按持续授权恢复原业务；条件未知或失败保留现场。首次安装没有已批准 previous release，实机回退为 NOT_AVAILABLE，不能报 PASS。
 
 ## 备份与恢复
 
@@ -76,7 +76,7 @@ forecast/ops/backup 的独立 started/result 记录包含真实 MFV_TRIGGER、MF
 
 显式 `npm run m1:doctor -- --full-audit`（或稳定启动器末尾加`--full-audit`）才遍历正式/候选原档与案例，重读最新核对及其引用capture、重算案例，不补采、不创建评分revision、不更新索引、不调用模型。历史全部revision不在此次范围，`historical_revisions_audited=false`；不称所有历史评分已通过。最新核对的failed/未知评分会计入失败，即使显示读取器未抛异常；合法not_evaluated单独计数，available记录中的部分观测/缺数据不当成坏档。30秒协作式预算仅在文件操作之间检查；预算耗尽/清单不可读为incomplete，损坏/不可资格化对象为failed，两者均打印JSON并退出2。该审计不是备份恢复演练，也不提供并发写入期间的事务快照。默认doctor不遍历原档；两种模式均不领取或恢复业务锁、不杀进程、不修文件。未知参数非0退出。
 
-分别报告工程验证、安装版真实单轮、至少两期自然运行、方法效果。测试成功、配置 ACTIVE、历史预测可读均不能替代后面三项证据。合并前核对精确提交、CI与独立审查并按持续授权执行；正式切包前另准备精确main候选包与配置差异供维护者确认。
+分别报告工程验证、安装版真实单轮、至少两期自然运行、方法效果。测试成功、配置 ACTIVE、历史预测可读均不能替代后面三项证据。合并前核对精确提交、CI与独立审查并按持续授权执行；正式切包前准备精确main候选包与配置差异，核本次独立审查、兼容和备份恢复条件；同类M1维护按持续授权执行，范围外事项另行取得明确授权。
 
 
 ## 容量限制
@@ -105,3 +105,8 @@ ops每日UTC基线的 `filesystem_used_delta_bytes` 是整个文件系统的用�
 当前受控入口只允许从 `additional_inputs=none` 启动一个因子；必须已有同一生成身份的反馈实验完成20对并决定 promote/reject，还要有决定后新增且重新验档通过的成熟案例。前置决定须具有plan/decision commit绑定和全机会证据；逐项核验冻结输入、实际启动及原评分revision，再重算原检查点，缺证据的旧摘要不能当作通过。计划保留原因、release、策略哈希、反馈决定哈希、案例及revision哈希；共享创建入口对手动和自动路径每天（Asia/Shanghai）最多新建一个，已尝试的相同策略/输入不重复建。后续沿用01:47机会、20对/30机会、5%改善及原护栏，不承诺何时产生有效结论。
 
 正式策略与实验control不一致时，预测登记和ops审查先保存实验 `paused/production_configuration_changed`，保留原计划、机会和结果；不继续混合评分或自动建替代实验。正式预测继续使用当前获准策略。旧晋级策略的模型/推理/predictor身份已不匹配新包时，使用新包基础策略；损坏的决定哈希仍明确失败。旧记录不改写，暂停实验没有自动恢复或替代入口；共享创建路径拒绝覆盖其状态及原因，需另行受控处置后才可新建。
+## 2026-09-17 同类M1维护持续授权
+
+真实用户原话：“批准，类似的都可以直接继续，不需要我批准”。来源：[授权转录](https://github.com/He1met/market-forecast-viewer/issues/15#issuecomment-5708294712)；该评论是Codex如实转录，不是GitHub owner review。已批准M1范围内同性质维护修复、已独立审查且必要测试/CI/兼容检查通过的精确包切换、相应经审不可覆盖维护记录写入，以及恢复已批准同频率/模型业务，可自主继续，无需逐包逐次询问。
+
+每次仍准备精确build/release/manifest/config及维护记录SHA，fresh核规划、审查和后续决定，留持续授权源与本次范围核验；原始授权不能伪造成每次新的用户原话。先保护原档、核活动轮次/锁、验证备份恢复与回退条件，再安全暂停、安装、核固定端口/已安装读者，恢复原业务并留真实起点。自然运行和方法效果分别留证。新阶段、交易/账户资金、新付费服务、公网部署不在此授权内，后续暂停/撤回优先。以下历史“精确批准”要求在同类范围内由该持续授权加本次精确审查/技术核验满足，不代表豁免技术门禁。
