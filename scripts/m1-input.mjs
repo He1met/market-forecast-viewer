@@ -9,15 +9,16 @@ import { METHOD_VERSION, PROMPT_VERSION, extractFeatures, rawOutputJsonSchema } 
 import { newRun, freezeInput } from './m1-archive.mjs';
 import { validateAndCopyEvents } from './m1-events.mjs';
 import{configuredRoots,readJson as readRootJson}from'./m1-files.mjs';
+import { getHistoryPage } from './m1-history-get.mjs';
 
 const exec = promisify(execFile);
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 const endpoint = 'https://www.okx.com/api/v5/market/history-candles';
 const codeFiles = ['scripts/m1-input.mjs', 'scripts/m1-forecast.mjs', 'scripts/m1-archive.mjs', 'scripts/m1-events.mjs',
-  'src/m1-contracts.ts', 'src/contracts.ts', 'scripts/data-utils.mjs', 'docs/M1_FORECAST.md'];
+  'src/m1-contracts.ts', 'src/contracts.ts', 'scripts/data-utils.mjs', 'scripts/m1-history-get.mjs', 'docs/M1_FORECAST.md'];
 
 // Reuses M0 normalization/validation, but every response belongs to a new run.
-export async function downloadRunHistory(runId, {anchorTime,signal,deadline=Infinity}={}) {
+export async function downloadRunHistory(runId, {anchorTime,signal,deadline=Infinity,historyGet=getHistoryPage}={}) {
   check(/^[a-zA-Z0-9_-]+$/.test(runId), 'Unsafe run ID');
   const dataRoot=configuredRoots().data_root;const reference=`artifacts/data-source/${runId}`;const directory=path.join(dataRoot,'data-source',runId);
   await fs.mkdir(path.dirname(directory), { recursive: true });
@@ -26,12 +27,9 @@ export async function downloadRunHistory(runId, {anchorTime,signal,deadline=Infi
   let end=anchorTime, after;
   for (let page = 1; page <= 12; page++) {
     const params = { instId: 'BTC-USDT-SWAP', bar: '15m', limit: 300, ...(after ? { after } : {}) };
-    const requested_at = new Date().toISOString();
     const file = `${directory}/page-${String(page).padStart(3, '0')}.json`;
-    const { stdout } = await exec('curl', ['--fail-with-body', '--silent', '--show-error',
-      '--max-time', '30', '--output', file, '--write-out', '%{http_code}',
-      endpoint + '?' + new URLSearchParams(params)], { timeout: Math.min(35000,Math.max(1,deadline-performance.now())),signal });
-    check(stdout.trim() === '200', `OKX HTTP ${stdout.trim()}`);
+    const {http_code,requested_at}=await historyGet({url:endpoint+'?'+new URLSearchParams(params),file,signal,deadline,kind:'forecast'});
+    check(http_code === '200', `OKX HTTP ${http_code}`);
     const bytes = await fs.readFile(file), body = parseStrict(bytes.toString('utf8'));
     check(body.code === '0' && Array.isArray(body.data) && body.data.length > 0, 'OKX error or empty page');
     rows.push(...body.data);
@@ -67,12 +65,12 @@ stages分别start_step/end_step=1/24、25/48、49/96；lower/upper为你对相�
 冻结模型上下文（完整14天原始来源另行归档；这里展示特征和末96柱）：\n${JSON.stringify(context)}\n`;
 }
 
-export async function prepareForecast(eventsFile,{anchorTime,signal,deadline,extraContext={},learningBuilder,supplementaryBuilder}={}) {
+export async function prepareForecast(eventsFile,{anchorTime,signal,deadline,historyGet,extraContext={},learningBuilder,supplementaryBuilder}={}) {
   const run = await newRun();
   try {
     // Event bytes must exist before the market capture and input freeze.
     const { events, original_sha256 } = await validateAndCopyEvents(eventsFile, run.runDir);
-    const history = await downloadRunHistory(run.run_id,{anchorTime,signal,deadline});
+    const history = await downloadRunHistory(run.run_id,{anchorTime,signal,deadline,historyGet});
     const features = extractFeatures(history.candles);
     if(learningBuilder)extraContext={...extraContext,learning:await learningBuilder(features,new Date().toISOString())};
     const anchor_time = history.end_time, anchor_price = history.candles.at(-1).close;

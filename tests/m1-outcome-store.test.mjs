@@ -105,3 +105,21 @@ test('SYNTHETIC malformed row timestamp remains an archived capture failure, not
   assert.equal((await f.store.readCapture(f.run, c.capture_id)).record.status, 'failed');
   assert.deepEqual(await f.store.readLatest(f.run), { status: 'failed', reason: 'evaluation_failed' });
 });
+
+test('SYNTHETIC real outcome transport retries35 once, keeps raw attempts and old evaluation, backup restores all bytes',async t=>{
+ const f=await fixture(t),{createHistoryGetter}=await import('../scripts/m1-history-get.mjs');let calls=0,failBoth=false;const urls=[];
+ const getter=createHistoryGetter({execute:async(cmd,args)=>{calls++;urls.push(args.at(-1));const file=args[args.indexOf('--output')+1];if(failBoth||calls%2===1){await writeFile(file,'SYNTHETIC FAILED RESPONSE');throw Object.assign(Error('SYNTHETIC TLS'),{code:35});}await writeFile(file,json({code:'0',data:f.rows}));return{stdout:'200'};}});
+ const store=createOutcomeStore({root:f.root,historyGet:getter});
+ const capture=await store.capture(f.run,{deadline:performance.now()+60000});assert.equal(capture.status,'ok');assert.equal(calls,2);assert.equal(urls[0],urls[1]);
+ const revision=await store.evaluateCapture(f.run,capture.capture_id);const source=await store.readCapture(f.run,capture.capture_id);const base=join(f.folder,'captures',capture.capture_id);
+ const receipt=JSON.parse(await readFile(join(base,'request-attempts/page-001/attempt-002/result.json'),'utf8'));assert.equal(source.record.pages[0].requested_at,receipt.requested_at);
+ const repeated=await store.capture(f.run,{deadline:performance.now()+60000});assert.deepEqual(await store.evaluateCapture(f.run,repeated.capture_id),revision);
+ failBoth=true;const failed=await store.capture(f.run,{deadline:performance.now()+60000});assert.equal(failed.status,'failed');assert.equal(calls,6);assert.deepEqual(await store.readRevision(f.run,revision.revision_id),revision);assert.equal((await store.readLatest(f.run)).status,'failed');
+ const {backup,restore}=await import('../scripts/m1-backup.mjs');const net=await import('node:net');const server=net.createServer();await new Promise(r=>server.listen(0,'127.0.0.1',r));const port=server.address().port;await new Promise(r=>server.close(r));
+ const target=join(f.root,'backup');await mkdir(target);const b=await backup({dataRoot:join(f.root,'artifacts'),target,port,releaseId:'SYNTHETIC'});assert.equal(b.status,'completed');
+ const attempts=b.manifest.files.filter(x=>x.name.includes('request-attempts'));assert.equal(attempts.length,18);
+ const dest=join(f.root,'restored');const restored=await restore({target,manifestFile:join(target,'manifests',b.manifest.id+'.json'),destination:dest,verify:async root=>{
+  for(const file of attempts)assert.equal(hash(await readFile(join(root,file.name))),file.sha256);
+  return{passed:true};
+ }});assert.equal(restored.activation_restored,false);assert.equal(restored.replay.passed,true);
+});
