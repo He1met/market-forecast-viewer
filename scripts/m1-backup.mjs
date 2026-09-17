@@ -3,7 +3,7 @@ import path from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {digest,readBytes,readJson,writeOnce,atomic,check,safePath,exists,within} from './m1-files.mjs';
 import {businessMutex} from './m1-mutex.mjs';
-const roots=['forecast-runs','data-source','m1-candidates','m1-outcomes','m1-runtime','m1-control','m1-slots','m1-observations','m1-task-status','m1-cases','m1-learning','m1-experiments','m1-derivatives','m1-calendar','m1-projections'];
+const roots=['forecast-runs','data-source','m1-candidates','m1-outcomes','m1-runtime','m1-control','m1-slots','m1-observations','m1-task-status','m1-cases','m1-learning','m1-experiments','m1-derivatives','m1-calendar','m1-projections','m1-closures'];
 // stat.dev identifies a filesystem, not a physical disk or independent failure
 // domain (two APFS volumes on one disk can have different device numbers).
 export function backupFaultDomain(sourceDevice,targetDevice){return{

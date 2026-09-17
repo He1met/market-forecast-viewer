@@ -4,12 +4,19 @@ import { atomic, readJson, exists, check, canonical } from './m1-files.mjs';
 import { createDisplayReader } from './m1-display.mjs';
 import { caseStore } from './m1-cases.mjs';
 import { projectionStore } from './m1-index.mjs';
+import {listClosureIds} from './m1-closures.mjs';
 
 // Rebuilt views are separate from the backed-up bytes. A copied index is not
 // evidence that every restored archive has been read by the installed code.
 export async function replayRestored({codeRoot, dataRoot, limit=16, maxMs=15000,
  readers, cases}={}) {
  check(Number.isSafeInteger(limit)&&limit>0&&Number.isFinite(maxMs)&&maxMs>0,'RESTORE_REPLAY_BUDGET_INVALID');
+ // Revalidate closure evidence on every continuation, including already replayed
+ // runs. A stale replay cursor cannot certify newly corrupted closure bytes.
+ for(const id of await listClosureIds(dataRoot)){
+  const result=await createDisplayReader({root:codeRoot,dataRoot}).readScoringRun(id);
+  check(result.status==='historical_unpublished_closed_not_scoreable','RESTORE_CLOSURE_INVALID');
+ }
  readers??={production:createDisplayReader({root:codeRoot,dataRoot}),
   candidate:createDisplayReader({root:codeRoot,dataRoot,runsRoot:path.join(dataRoot,'m1-candidates')})};
  cases??=caseStore({codeRoot,dataRoot});

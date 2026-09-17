@@ -1,5 +1,13 @@
 ## 未发布失败记录与评分资格
 
+历史单次调用已经结束，不代表整条预测已耗尽重试。对于经当前规划明确弃用的旧预报，独立 `m1-closures/<run_id>/` 候选保存 statement.json、historical-report.json、planning-issue.json；只有独立审查真实返回后才能附入 review.json。statement 绑定原档完整文件及目录集合（含空目录）、每份字节哈希、manifest、已支持旧解析器，以及两份真实来源快照的原字节/正文哈希。没有审查的候选不能被评分扫描消费，也不能放入运行数据根。
+
+审查者在真实 GitHub formal review 中以一个 `mfv-closure-review` fenced JSON 块给出 `MFV:CLOSURE_REVIEW:v1`，decision 为 `historical_unpublished_closure_approved`，绑定 statement_sha256、reviewed_commit 和 closureImplementationFiles 所列六份实际实现文件 SHA。代码审查通过不自动等于封存批准。消费验证真实来源身份、review state/commit、每份字节和声明；未知schema/parser、重复JSON键、链接、路径逃逸、原目录任何增删改、开放尝试或成功/发布矛盾都拒绝。它只表示 `historical_unpublished_closed_not_scoreable`，原失败与执行告警保留，正常ops/fallback只推进自己的评分游标。
+
+来源快照是数据；离线读者不能证明 GitHub 当前无撤回，也不是密码学签名。安装/生产封存写入前，受控管理步骤必须 fresh GET 历史报告、当前规划、精确 formal review及其后续决定，核实身份、原字节、commit和无撤回。最终批准须同时绑定精确包和候选目录各文件SHA；用业务互斥保护完整原档再核、独占创建新目录/不可覆盖写入，现存目标必须停止核验，不覆盖修补；全部来源及review准备好后一次目录rename发布，失败保留现场不让评分消费半份记录。该步骤不改原预测目录，也不运行模型或评分。statement.proposed_at、review.submitted_at、安装写入收据时间和首次自然ops消费时间分别记录，不倒填历史终止。
+
+`m1-closures` 纳入受保护兼容快照及备份；目标包兼容和隔离恢复回放逐项消费验证，包括已回放对象的续接轮。没有对应读者或已审实现字节变化必须重新核验，不能静默忽略。仅复制不算恢复验证通过。当前Issue23交付只准备源码与候选；现运行包及生产数据根保持不变，切包及封存写入待最终精确批准。
+
 ops生产/候选扫描与forecast fallback共用只读评分资格检查。只接受两次尝试已耗尽、冻结档与尝试收据/原输出一致的 `MODEL_ATTEMPT_REJECTED`，并从原JSONL与精确调用参数重算对应已支持版本的拒绝语义，且不存在publication、结果档或已发布索引/成功摘要等矛盾迹象；正常扫描返回 `terminal_failed_not_scoreable`，仅解除该对象的评分unresolved，不改变原失败或执行告警。
 
 仅支持已识别的两版事件规则：新版审计摘要必须与重算逐项一致；旧版没有event_audit时，仅接受冻结的旧解析器身份、精确禁用上下文与已知启动提示造成的拒绝，不升级或改写旧收据。准备失败、validation失败、单次失败、未知解析器或缺原始事件/调用证据等类型暂不自动豁免。存在publication路径必须严格读取；成功后缺档、损坏、未完成尝试仍为unresolved。无需重写历史文件或删除告警来消除评分误报；告警与实际运行验收继续按真实记录判断。

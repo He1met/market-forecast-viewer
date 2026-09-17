@@ -10,6 +10,7 @@ import { readFrozen, readPublished } from './m1-archive.mjs';
 import { createOutcomeStore } from './m1-outcome-store.mjs';
 import { auditCodexEvents } from './m1-forecast.mjs';
 import { modelArguments } from './m1-model.mjs';
+import {readLegacyClosure} from './m1-closures.mjs';
 import {dataReference} from './m1-files.mjs';import{effectiveEvents}from'./m1-supplementary.mjs';
 
 const defaultRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -149,14 +150,17 @@ export function createDisplayReader({ root = defaultRoot, dataRoot = process.env
     });
     return includeEvaluation ? displayRunSchema.parse({ ...result, evaluation: await createOutcomeStore({ root, dataRoot, runsRoot }).readLatest(result) }) : result;
   }
-  /** Only two exhausted, fully recorded failures can bypass publication reads.
-   * This is deliberately narrower than the display's failed state: preparation,
-   * validation failures and interrupted/one-attempt runs remain unresolved. */
+  /** Two exhausted failures, or an independently reviewed historical closure.
+   * A single completed attempt alone never proves run closure. */
   async function readScoringRun(id) {
     const directory = await preflight(id);
     check(!(await exists(join(directory, 'preparation-failure.json'))), 'SCORING_FAILURE_UNPROVEN');
     // Even a dangling symlink or partial publication must take the strict path.
-    if (await exists(join(directory, 'publication'))) return { status: 'readable', run: await readRun(id) };
+    const closureExists=await exists(join(dataRoot,'m1-closures',id));
+    if (await exists(join(directory, 'publication'))) {
+      check(!closureExists,'CLOSURE_PUBLICATION_CONTRADICTION');
+      return { status: 'readable', run: await readRun(id) };
+    }
     const frozen = await readFrozen(directory);
     check(canonical(frozen.schema) === canonical(rawOutputJsonSchema), 'SCORING_SCHEMA_MISMATCH');
     await validateHistory(frozen.input.history);
@@ -173,6 +177,7 @@ export function createDisplayReader({ root = defaultRoot, dataRoot = process.env
       check(index.latest_run_id !== id && !index.runs.some(row => row.run_id === id &&
         (row.published_at != null || row.projection != null || ['valid', 'late'].includes(row.status))), 'SCORING_PUBLICATION_EVIDENCE');
     }
+    if(closureExists)return await readLegacyClosure({codeRoot:root,dataRoot,runId:id,runsRoot,frozen});
     let endedAt = frozen.manifest.information_frozen_at;
     for (const attempt of ['attempt-001', 'attempt-002']) {
       const folder = join(directory, attempt);
