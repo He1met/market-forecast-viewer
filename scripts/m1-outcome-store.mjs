@@ -1,8 +1,7 @@
 import { constants } from 'node:fs';
 import { mkdir, lstat, open, readdir, realpath, rename, writeFile } from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
+import { getHistoryPage } from './m1-history-get.mjs';
 import { join, relative, resolve, sep, isAbsolute } from 'node:path';
 import { z } from 'zod';
 import { canonical, parseStrict } from '../src/contracts.ts';
@@ -10,7 +9,6 @@ import { evaluateForecast, evaluationSchema, EVALUATION_VERSION } from '../src/m
 import { normalizeRows } from './data-utils.mjs';
 import {legacyScorer}from'./m1-compat.mjs';
 
-const execute = promisify(execFile);
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 const encode = value => JSON.stringify(value, null, 2) + '\n';
 const check = (value, message = 'OUTCOME_INVALID') => { if (!value) throw Error(message); };
@@ -33,7 +31,7 @@ const revisionSchema = object({ schema: z.literal('MFV:M1_EVALUATION_REVISION:v1
   evaluation_code_sha256: hash, local_only: z.literal(true) });
 
 /** Only this explicit command layer writes outcomes. HTTP readers never acquire data. */
-export function createOutcomeStore({ root = process.cwd(), dataRoot=process.env.MFV_DATA_ROOT??join(root,'artifacts'), runsRoot=join(dataRoot,'forecast-runs'), stateRoot = join(dataRoot, 'm1-outcomes') } = {}) {
+export function createOutcomeStore({ root = process.cwd(), dataRoot=process.env.MFV_DATA_ROOT??join(root,'artifacts'), runsRoot=join(dataRoot,'forecast-runs'), stateRoot = join(dataRoot, 'm1-outcomes'), historyGet=getHistoryPage } = {}) {
   root = resolve(root);dataRoot=resolve(dataRoot); stateRoot = resolve(stateRoot);
   const inside = file => { const part = relative(root, file); return part && part !== '..' && !part.startsWith(`..${sep}`) && !isAbsolute(part); };
   check(stateRoot.startsWith(dataRoot+sep));
@@ -63,9 +61,7 @@ export function createOutcomeStore({ root = process.cwd(), dataRoot=process.env.
   const newId = prefix => `${prefix}-${new Date().toISOString().replace(/[-:.]/g, '')}-${randomUUID()}`;
   async function getPage({ url, file, signal,deadline=Infinity }) {
     // Existing network configuration and normal TLS verification are preserved; bounded, no account API.
-    const { stdout } = await execute('curl', ['--fail-with-body', '--silent', '--show-error', '--max-time', '25',
-      '--output', file, '--write-out', '%{http_code}', url], { timeout: Math.max(1,Math.min(30000,deadline-performance.now())), signal, maxBuffer: 1024 * 1024 });
-    return stdout.trim();
+    return historyGet({url,file,signal,deadline,kind:'outcome'});
   }
   async function capture(run, { transport = getPage,signal,deadline=Infinity } = {}) {
     const capture_id = newId('capture'), dir = capturePath(run, capture_id); await directory(dir);
@@ -80,8 +76,10 @@ export function createOutcomeStore({ root = process.cwd(), dataRoot=process.env.
       // Fetch only the new outcome horizon (<=96 bars), never the original 14-day input.
       for (let page = 1; observed_through > record.start_time && page <= 3; page++) {
         const params = { instId: 'BTC-USDT-SWAP', bar: '15m', limit: 100, after };
-        const file = `page-${String(page).padStart(3, '0')}.json`, requested_at = new Date().toISOString();
-        const http_code = await transport({ url: endpoint + '?' + new URLSearchParams(params), file: join(dir, file),signal,deadline });
+        const file = `page-${String(page).padStart(3, '0')}.json`, began = new Date().toISOString();
+        const response = await transport({ url: endpoint + '?' + new URLSearchParams(params), file: join(dir, file),signal,deadline });
+        const http_code=typeof response==='string'?response:response.http_code;
+        const requested_at=typeof response==='string'?began:response.requested_at;
         const completed_at = new Date().toISOString(); check(http_code === '200', 'OUTCOME_HTTP_FAILED');
         const raw = await bytes(join(dir, file)), body = parseStrict(raw.toString('utf8'));
         check(body.code === '0' && Array.isArray(body.data), 'OUTCOME_RESPONSE_FAILED');
