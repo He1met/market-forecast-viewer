@@ -4,52 +4,60 @@ import { WeatherChart, colors } from './chart';
 import { gridPosition, generationExplanation } from './demo-explanation';
 import { loadDisplayIndex, loadDisplayRun, loadRuntimeDisplay, type DisplayRun, type DisplayIndex, type RuntimeDisplay } from './m1-display';
 import { toExperimentChart, CATEGORY_LABELS, CATEGORY_DEFINITIONS } from './chart-model';
+import { CATEGORY_STYLE, rankProbabilities, topProbabilityIds, probabilityStyle, formatProbability, displayTime, runtimeHeadline } from './forecast-presentation';
 const $ = (id:string) => document.getElementById(id)!;
 let view:WeatherChart|undefined, dataset:Dataset={errors:[]}, request=0, controller:AbortController|undefined;
-$('app').innerHTML=`<header><div class="brand"><span class="brand-icon">◒</span><div><h1>市场天气</h1><p>MARKET WEATHER / BTC</p></div></div><div class="demo-badge">DEMO 演示未来｜非交易信号</div><div class="header-note">本地历史快照 <span class="dot"></span></div></header><main><section class="market-head"><div><span class="eyebrow">OKX · USDT 线性永续</span><h2>BTC <span>/ USDT</span> <small>15m</small></h2></div><div id="metadata" class="metadata">正在读取本地数据…</div></section><section class="chart-shell"><div class="toolbar"><div id="legend"></div><div id="controls"><select id="window" aria-label="未来展示窗口"><option value="6">未来 6h</option><option value="12">未来 12h</option><option value="24" selected>未来 24h</option></select><button id="reset">重置视图</button><select id="timezone" aria-label="显示时区"><option value="local">浏览器时区</option><option value="UTC">UTC</option></select><button id="reload">重载文件</button></div></div><div class="demo-context"><p>未来为固定 DEMO 情景路径，不是本轮 Codex 市场预测；区间未经校准。 <strong>概率：未计算（固定 DEMO）</strong></p><details id="generation"><summary>生成依据</summary><div id="generation-content"></div></details></div><div id="chart" role="img" aria-label="BTC真实历史与DEMO未来图表"></div><div class="chart-foot"><span id="hover">移动十字线查看数据</span><span>滚轮缩放 · 拖动平移 · 拖动右轴缩放价格</span></div></section><div id="errors" role="alert" hidden></div><section class="grid-controls"><div class="grid-picker"><label for="scheme">DEMO 网格方案</label><select id="scheme" aria-label="网格方案"></select><label class="grid-visible"><input id="grid-visible" type="checkbox" checked>显示网格</label></div><div><div id="grid-summary"></div><small id="position-label"></small><p id="grid-position"></p></div><details id="levels"><summary>查看价格层级</summary><div id="level-values"></div></details></section><section id="detail" class="detail"><p>内层 / 外层示意区间 · 未经校准 · 路径仅为固定演示模板</p><span id="load-status" role="status">正在读取文件…</span></section><footer><span>数据来源 <a href="https://www.okx.com/docs-v5/en/#order-book-trading-market-data-get-candlesticks-history" target="_blank" rel="noreferrer">OKX 官方公开接口</a> · <span id="dataset-id"></span></span><span>仅作演示 · <a href="/licenses/index.html" target="_blank">第三方声明</a> · <a href="/licenses/lightweight-charts-LICENSE.txt" target="_blank">Apache-2.0</a> · <a href="https://www.tradingview.com/" target="_blank" rel="noreferrer">TradingView</a></span></footer></main>`;
+$('app').innerHTML=`<header><div class="brand"><span class="brand-icon">◒</span><div><h1>市场天气</h1><p>MARKET WEATHER / BTC</p></div></div><div class="demo-badge">DEMO 演示未来｜非交易信号</div><div class="header-note">本地历史快照 <span class="dot"></span></div></header><main><section class="market-head"><div><span class="eyebrow">OKX · USDT 线性永续</span><h2>BTC <span>/ USDT</span> <small>15m</small></h2></div><div id="metadata" class="metadata">正在读取本地数据…</div></section><section class="chart-shell"><div class="toolbar"><div id="legend"></div><div id="controls"><select id="window" aria-label="未来展示窗口"><option value="6">未来 6h</option><option value="12">未来 12h</option><option value="24" selected>未来 24h</option></select><button id="reset">重置视图</button><select id="timezone" aria-label="显示时区"><option value="Asia/Shanghai" selected>北京时间</option><option value="local">浏览器时区</option><option value="UTC">UTC</option></select><button id="reload">重载文件</button></div></div><div class="demo-context"><p>未来为固定 DEMO 情景路径，不是本轮 Codex 市场预测；区间未经校准。 <strong>概率：未计算（固定 DEMO）</strong></p><details id="generation"><summary>生成依据</summary><div id="generation-content"></div></details></div><div id="chart" role="img" aria-label="BTC真实历史与DEMO未来图表"></div><div class="chart-foot"><span id="hover">移动十字线查看数据</span><span>滚轮缩放 · 拖动平移 · 拖动右轴缩放价格</span></div></section><div id="errors" role="alert" hidden></div><section class="grid-controls"><div class="grid-picker"><label for="scheme">DEMO 网格方案</label><select id="scheme" aria-label="网格方案"></select><label class="grid-visible"><input id="grid-visible" type="checkbox" checked>显示网格</label></div><div><div id="grid-summary"></div><small id="position-label"></small><p id="grid-position"></p></div><details id="levels"><summary>查看价格层级</summary><div id="level-values"></div></details></section><section id="detail" class="detail"><p>内层 / 外层示意区间 · 未经校准 · 路径仅为固定演示模板</p><span id="load-status" role="status">正在读取文件…</span></section><footer><span>数据来源 <a href="https://www.okx.com/docs-v5/en/#order-book-trading-market-data-get-candlesticks-history" target="_blank" rel="noreferrer">OKX 官方公开接口</a> · <span id="dataset-id"></span></span><span>仅作演示 · <a href="/licenses/index.html" target="_blank">第三方声明</a> · <a href="/licenses/lightweight-charts-LICENSE.txt" target="_blank">Apache-2.0</a> · <a href="https://www.tradingview.com/" target="_blank" rel="noreferrer">TradingView</a></span></footer></main>`;
 let experimentLoadFailed=false;
 let selectionMode:'follow_latest'|'history_pinned'='follow_latest';
 let activeMode:'demo'|'experiment'='demo', experiment:DisplayRun|undefined, experimentIndex:DisplayIndex|undefined;
 const modeBar=document.createElement('section');modeBar.className='mode-bar';
-modeBar.innerHTML='<label>查看内容 <select id="mode" aria-label="查看内容"><option value="demo">固定 DEMO</option><option value="experiment">Codex 实验预报</option></select></label><label id="run-picker" hidden>历史预报 <select id="run" aria-label="历史预报"></select></label><button id="latest" hidden>读取最新索引</button><button id="history-more" hidden>更早的30期</button><span id="run-status" role="status"></span>';
+modeBar.innerHTML='<label>查看内容 <select id="mode" aria-label="查看内容"><option value="demo">固定 DEMO</option><option value="experiment">Codex 实验预报</option></select></label><label id="run-picker" hidden>历史预报 <select id="run" aria-label="历史预报"></select></label><button id="latest" hidden>返回最新</button><button id="history-more" hidden>更早的30期</button><span id="run-status" role="status"></span>';
 document.querySelector('.chart-shell')!.before(modeBar);
-const runtimePanel=document.createElement('section');runtimePanel.id='runtime-panel';runtimePanel.hidden=true;
+const runtimePanel=document.createElement('details');runtimePanel.id='runtime-panel';runtimePanel.hidden=true;
 runtimePanel.setAttribute('aria-label','实验预测业务运行状态');
-runtimePanel.innerHTML='<div class="runtime-heading"><h3>M1 实验预测运行</h3><span id="runtime-status" role="status">业务状态尚未读取</span></div><div id="runtime-details"></div><p class="runtime-help">关闭页面不会停止业务任务。暂停方式：在 Codex 应用中暂停“M1 实验预测运行”；正在执行的轮次需安全结束，暂停不等于终止当前进程。此处每分钟只读取运行状态；“读取最新索引”更新预报显示，不触发预测、下载或评分。</p>';
-modeBar.after(runtimePanel);
+runtimePanel.innerHTML='<summary class="runtime-heading">运行详情 <span id="runtime-status" role="status">业务状态尚未读取</span></summary><div id="runtime-details"></div><p class="runtime-help">关闭页面不会停止业务任务。暂停方式：在 Codex 应用中暂停“M1 实验预测运行”；正在执行的轮次需安全结束，暂停不等于终止当前进程。此处每分钟只读取运行状态；“返回最新”更新预报显示，不触发预测、下载或评分。</p>';
+$('detail').before(runtimePanel);
+const headline=document.createElement('section');headline.id='forecast-headline';headline.hidden=true;headline.innerHTML='<p id=forecast-summary></p><p id=operation-summary role=status>当前运行待核验</p><p id=new-forecast role=status hidden></p>';modeBar.after(headline);
+const board=document.createElement('div');board.className='forecast-board';const shell=document.querySelector('.chart-shell')!;shell.before(board);board.append(shell);
+const probabilities=document.createElement('aside');probabilities.id='probabilities';probabilities.hidden=true;probabilities.innerHTML='<h3>未来24h · 六类概率</h3><p>主观判断，未经校准</p><button id=emphasize-top aria-pressed=false>突出前三（含并列）</button><p class=probability-note>线宽与清晰度表示类别概率，不表示精确命中折线。6/12h仅裁切同一份预报。</p>';board.append(probabilities);
+let topOnly=false,latestRuntime:RuntimeDisplay|undefined;
+const selectedZone=()=>select('timezone').value==='local'?Intl.DateTimeFormat().resolvedOptions().timeZone:select('timezone').value;
+const timeLabel=(value:string|number|null|undefined)=>displayTime(value,selectedZone());
 let runtimeRequest=0,runtimeController:AbortController|undefined;
 const runtimeStatusLabels:Record<string,string>={running:'运行中',completed:'成功完成',failed:'运行失败',late:'新预报发布迟到',skipped:'本轮已跳过'};
 const runtimeStageLabels:Record<string,string>={check_release:'核验固定发布版本',score_old:'核对旧预报',collect_events:'收集公开事件',prepare:'冻结最新输入',generate:'生成并校验预报',publish_index:'发布只读索引',done:'流程结束',unknown:'阶段未知'};
 function renderRuntime(runtime:RuntimeDisplay){
+ latestRuntime=runtime;$('operation-summary').textContent=runtimeHeadline(runtime);
  const attempt=runtime.latest_attempt;
- const state=runtime.paused?'本地暂停标记生效':runtime.release_integrity==='changed'?'固定发布版本已改变 · 业务入口将拒绝':attempt?runtimeStatusLabels[attempt.status]:'尚无业务运行记录';
- $('runtime-status').textContent=state;
+ $('runtime-status').textContent=runtimeHeadline(runtime);
  runtimePanel.dataset.state=runtime.paused?'paused':runtime.release_integrity==='changed'?'unknown':attempt?.status??'unconfigured';
  const target=$('runtime-details');target.replaceChildren();
  const add=(text:string)=>{const p=document.createElement('p');p.textContent=text;target.append(p);};
  const configuration=runtime.configuration;
- add(configuration?`配置回读：每 ${configuration.frequency_hours} 小时；调度时区：${configuration.time_zone??'未知'}；回读时${configuration.enabled?'启用':'暂停'}（${configuration.read_back_at}）。官方当前启用状态未实时回读。`:runtime.source==='installed'?'官方任务配置未接入本页；请在Codex任务中查看启用状态。':'业务任务未配置：尚无已核验的官方配置回读。');
+ add(configuration?`配置回读：每 ${configuration.frequency_hours} 小时；调度时区：${configuration.time_zone??'未知'}；回读时${configuration.enabled?'启用':'暂停'}（${timeLabel(configuration.read_back_at)}）。官方当前启用状态未实时回读。`:runtime.source==='installed'?'官方任务配置未接入本页；请在Codex任务中查看启用状态。':'业务任务未配置：尚无已核验的官方配置回读。');
  add('下次官方计划时间：未知（官方入口未提供可读取的下次时间，不按频率推算）。');
  add(runtime.release_integrity==='verified'?'固定发布文件与所列代码字节核验一致；此项不代表本轮已运行成功。':runtime.release_integrity==='changed'?'当前发布文件或代码已改变，业务入口将拒绝使用当前版本。下面的成功或失败记录属于原轮次，未伪造新的运行尝试。':runtime.release_integrity==='unknown'?'固定发布版本核验未知：缺少可读取的绑定资料或无法校验；下面仅展示历史运行记录。':'固定发布版本尚未配置。');
  if(attempt){
   const reason=attempt.reason==='code_changed'?' · 代码或模型配置变更，未使用变更版本运行':attempt.reason==='publication_late'?' · 发布迟到，不能作为最新有效预报':attempt.reason==='runtime_failed'?' · 本轮流程失败，旧预报首次发布时间不变':attempt.reason==='unknown'?' · 原因未知':attempt.reason==='lock_busy'?' · 写入锁占用':attempt.reason==='paused'?' · 暂停': '';
   add(`最近业务尝试：${runtimeStatusLabels[attempt.status]}${reason}；${attempt.trigger==='scheduled'?'自然触发':'手动验证'}；${runtimeStageLabels[attempt.stage]}。`);
-  add(`开始 ${attempt.started_at}；${attempt.completed_at?'结束 '+attempt.completed_at:'最后记录 '+attempt.updated_at+'，是否仍在执行须由本机任务确认'}。`);
+  add(`开始 ${timeLabel(attempt.started_at)}；${attempt.completed_at?'结束 '+timeLabel(attempt.completed_at):'最后记录 '+timeLabel(attempt.updated_at)+'，是否仍在执行须由本机任务确认'}。`);
   if(attempt.forecast_id)add(`本轮预报：${attempt.forecast_id}`);
  }else add('最近业务尝试：暂无记录。开发定时任务不计入业务运行。');
- add(runtime.last_success?`${runtime.source==='installed'?'最近预报发布成功':'最近业务成功'}：${runtime.last_success.completed_at} · ${runtime.last_success.forecast_id}`:'最近业务成功：暂无已记录的完整成功流程。');
- if(runtime.publication_health){const health=runtime.publication_health;const label={paused:'暂停，不累计缺产出',unknown:'产出核验未知',waiting:'尚无启用后到期时段',current:'最近到期时段已有及时有效预报',stalled:'更新停滞：到期时段缺少及时有效预报'}[health.status];add(`产出检查：${label}。依据本地计划推导，不代表官方任务实际触发或调用失败；启用起点：${health.expected_since??'未配置'}。`);}
- if(runtime.inspection){const inspection=runtime.inspection;const label={unknown:'尚无巡检观察',fresh:'巡检观察在90分钟内',stale:'巡检信息陈旧（超过90分钟）',clock_invalid:'巡检时间异常，不能判断健康'}[inspection.freshness];add(`巡检：${inspection.paused?'暂停；':''}${label}；最近结果：${inspection.result==='ok'?'已取得必要结果':inspection.result==='failed'?'存在未解决异常':'未知'}；实际观察时间：${inspection.last_observed_at??'无'}。状态读取不会刷新巡检时间。`);}
- add(`状态读取时间：${runtime.checked_at}。${runtime.paused?'本地暂停会阻止后续新轮次；正在执行的轮次保留原状态。':''}`);
+ add(runtime.last_success?`${runtime.source==='installed'?'最近预报发布成功':'最近业务成功'}：${timeLabel(runtime.last_success.completed_at)} · ${runtime.last_success.forecast_id}`:'最近业务成功：暂无已记录的完整成功流程。');
+ if(runtime.publication_health){const health=runtime.publication_health;const label={paused:'暂停，不累计缺产出',unknown:'产出核验未知',waiting:'尚无启用后到期时段',current:'最近到期时段已有及时有效预报',stalled:'更新停滞：到期时段缺少及时有效预报'}[health.status];add(`产出检查：${label}。依据本地计划推导，不代表官方任务实际触发或调用失败；启用起点：${timeLabel(health.expected_since)}。`);}
+ if(runtime.inspection){const inspection=runtime.inspection;const label={unknown:'尚无巡检观察',fresh:'巡检观察在90分钟内',stale:'巡检信息陈旧（超过90分钟）',clock_invalid:'巡检时间异常，不能判断健康'}[inspection.freshness];add(`巡检：${inspection.paused?'暂停；':''}${label}；最近结果：${inspection.result==='ok'?'已取得必要结果':inspection.result==='failed'?'存在未解决异常':'未知'}；实际观察时间：${timeLabel(inspection.last_observed_at)}。状态读取不会刷新巡检时间。`);}
+ add('告警：可在 Codex 的预测、巡检与备份任务中查看本轮摘要；本页未接入事件明细。外部推送未接入；任务呈现及用户确认送达均未验证，读取页面不确认或清除告警。');
+ add(`状态读取时间：${timeLabel(runtime.checked_at)}。${runtime.paused?'本地暂停会阻止后续新轮次；正在执行的轮次保留原状态。':''}`);
 }
 async function reloadRuntime(){
  const id=++runtimeRequest;runtimeController?.abort();runtimeController=new AbortController();
  try{const runtime=await loadRuntimeDisplay(runtimeController.signal);if(id!==runtimeRequest)return;renderRuntime(runtime);}
- catch{if(id!==runtimeRequest)return;runtimePanel.dataset.state='unknown';$('runtime-status').textContent='业务状态读取失败 · 当前状态未知';$('runtime-details').textContent='本次无法读取或校验业务状态。预报图保留已加载快照，不把旧预报视为本次业务成功；可点击“读取最新索引”重试。';}
+ catch{if(id!==runtimeRequest)return;runtimePanel.dataset.state='unknown';$('runtime-status').textContent='业务状态读取失败 · 当前状态未知';$('operation-summary').textContent='业务状态读取失败 · 当前状态未知';latestRuntime=undefined;$('runtime-details').textContent='本次无法读取或校验业务状态。预报图保留已加载快照，不把旧预报视为本次业务成功；可点击“返回最新”重试。';}
 }
 const experimentDetails=document.createElement('section');experimentDetails.id='experiment-details';experimentDetails.hidden=true;
-experimentDetails.innerHTML='<h3>本次预测依据</h3><div id="experiment-summary"></div><div id="scenario-evidence"></div><section id="evaluation"><h3>实际走势与结果核对</h3><p id="evaluation-status"></p><div id="evaluation-content"></div></section><section id="history-learning"><h3>历史与学习</h3><div id="history-learning-content"></div></section>';
-$('detail').before(experimentDetails);
+experimentDetails.innerHTML='<details id=forecast-basis><summary>预测依据</summary><div id="experiment-summary"></div><div id="scenario-evidence"></div></details><details id=results-learning><summary>结果与学习</summary><section id="evaluation"><h3>实际走势与结果核对</h3><p id="evaluation-status"></p><div id="evaluation-content"></div></section><section id="history-learning"><h3>历史与学习</h3><div id="history-learning-content"></div></section></details>';
+runtimePanel.before(experimentDetails);
 const demoContext=document.querySelector('.demo-context') as HTMLElement;
 const demoBadge=document.querySelector('.demo-badge') as HTMLElement;
 const gridControls=document.querySelector('.grid-controls') as HTMLElement;
@@ -72,13 +80,15 @@ function updateExplanation(){
  add(g?`网格来源：${g.source_kind} · generator_version：${g.generator_version} · seed：${g.seed}。边界和价格层级直接来自独立网格文件，不由路径推导。`:'网格元数据不可用。');
 }
 async function reloadDemo(){const id=++request;controller?.abort();controller=new AbortController();$('load-status').textContent='正在校验本地文件 · 当前显示旧快照';const previousScheme=select('scheme').value;const visibility=new Map([...view?.paths??[]].map(([key,s])=>[key,s.options().visible]));const next=await loadDataset(controller.signal);if(id!==request)return;view?.destroy();view=undefined;activeMode='demo';experiment=undefined;dataset=next;setModePresentation();$('legend').replaceChildren();const historyLabel=document.createElement('span');historyLabel.className='legend-item';historyLabel.textContent='▮ 真实历史 K 线';$('legend').append(historyLabel);$('errors').hidden=!next.errors.length;$('errors').textContent=next.errors.join('\n');
- if(next.history){view=new WeatherChart($('chart'),next.history,next.forecast,hover);view.setTimezone(select('timezone').value==='UTC'?'UTC':Intl.DateTimeFormat().resolvedOptions().timeZone);if(next.forecast)view.setWindow(Number(select('window').value));for(const [i,s]of(next.forecast?.scenarios??[]).entries()){const label=document.createElement('label');label.className='legend-item path-toggle';const input=document.createElement('input');input.type='checkbox';input.checked=visibility.get(s.id)??true;input.setAttribute('aria-label',s.name);view.setPath(s.id,input.checked);input.onchange=()=>view?.setPath(s.id,input.checked);const swatch=document.createElement('i');swatch.className='path-swatch';swatch.style.borderColor=colors[i%colors.length];swatch.style.borderStyle=['solid','dashed','dotted'][i%3];label.append(input,swatch,document.createTextNode(s.name));$('legend').append(label);}}
+ if(next.history){view=new WeatherChart($('chart'),next.history,next.forecast,hover);view.setTimezone(selectedZone());if(next.forecast)view.setWindow(Number(select('window').value));for(const [i,s]of(next.forecast?.scenarios??[]).entries()){const label=document.createElement('label');label.className='legend-item path-toggle';const input=document.createElement('input');input.type='checkbox';input.checked=visibility.get(s.id)??true;input.setAttribute('aria-label',s.name);view.setPath(s.id,input.checked);input.onchange=()=>view?.setPath(s.id,input.checked);const swatch=document.createElement('i');swatch.className='path-swatch';swatch.style.borderColor=colors[i%colors.length];swatch.style.borderStyle=['solid','dashed','dotted'][i%3];label.append(input,swatch,document.createTextNode(s.name));$('legend').append(label);}}
  select('scheme').replaceChildren();for(const s of next.grids?.schemes??[]){const option=document.createElement('option');option.value=s.id;option.textContent=`${s.name} / ${s.mode.label}`;select('scheme').append(option);}select('scheme').value=next.grids?.schemes.some(s=>s.id===previousScheme)?previousScheme:next.grids?.default_scheme_id??'';
  select('window').disabled=!next.forecast;select('scheme').disabled=!next.grids;($('grid-visible')as HTMLInputElement).disabled=!next.grids;($('reset')as HTMLButtonElement).disabled=!next.history;select('timezone').disabled=!next.history;updateGrid();updateMeta();updateExplanation();hover(undefined);$('load-status').textContent=next.errors.length?'加载存在错误 · 无效图层已清除':'本地文件已校验 · 固定 DEMO / 尚未接入评估';
 }
-$('reset').onclick=()=>view?.reset();$('window').onchange=()=>view?.setWindow(Number(select('window').value));$('timezone').onchange=()=>{view?.setTimezone(select('timezone').value==='UTC'?'UTC':Intl.DateTimeFormat().resolvedOptions().timeZone);if(activeMode==='experiment')renderEvaluation();updateMeta();updateExplanation();};$('scheme').onchange=updateGrid;$('grid-visible').onchange=updateGrid;$('reload').onclick=()=>void reload();
+$('reset').onclick=()=>view?.reset();$('window').onchange=()=>view?.setWindow(Number(select('window').value));$('timezone').onchange=()=>{view?.setTimezone(selectedZone());if(activeMode==='experiment'){if(experiment){renderEvaluation();renderExperimentEvidence();if(experimentIndex){indexOptions(experimentIndex,experiment.run_id);experimentStatus(experimentIndex,experiment);}}if(latestRuntime)renderRuntime(latestRuntime);}updateMeta();updateExplanation();hover(undefined);};$('scheme').onchange=updateGrid;$('grid-visible').onchange=updateGrid;$('reload').onclick=()=>void reload();
 function setModePresentation(){
  const isExperiment=activeMode==='experiment';
+ document.body.classList.toggle('experiment-mode',isExperiment);headline.hidden=!isExperiment;probabilities.hidden=!isExperiment;
+ if(isExperiment)probabilities.insertBefore($('legend'),probabilities.querySelector('.probability-note'));else document.querySelector('.toolbar')!.prepend($('legend'));
  demoBadge.textContent=isExperiment?'Codex 实验预报 · 主观概率未校准 · 非交易信号':'DEMO 演示未来｜非交易信号';
  demoBadge.classList.toggle('experiment-badge',isExperiment);
  demoContext.hidden=isExperiment;gridControls.hidden=isExperiment;$('experiment-details').hidden=!isExperiment;
@@ -95,11 +105,11 @@ function updateExperimentMeta(){
  if(!run||!view){$('metadata').textContent='暂无可显示的实验预报';$('dataset-id').textContent='无实验快照';return;}
  const f=run.forecast;
  $('metadata').textContent=`数据截止 ${view.format(f.data_cutoff,true)}\n信息冻结 ${view.format(Date.parse(f.information_frozen_at)/1000,true)}\n首次发布 ${view.format(Date.parse(f.published_at)/1000,true)} · ${view.zone}`;
- $('dataset-id').textContent='实验 '+run.run_id;$('dataset-id').title=run.hashes.forecast_sha256;
+ $('dataset-id').textContent='实验档案 · '+timeLabel(f.published_at);$('dataset-id').title=run.hashes.forecast_sha256;
  const states=[6,12,24].map(hours=>`${hours}h ${Date.now()/1000>=f.anchor_time+hours*3600?'已到期':'未到期'}`);
  if(run.evaluation.status==='available'){
   const result=run.evaluation.result;
-  $('evaluation-status').textContent=`当前时间：${states.join('　 /　 ')}。当次核对 ${result.evaluated_at}，行情核对截止 ${view.format(result.observed_through,true)} · ${view.zone}。到期不会自动补取行情或更新评分。`;
+  $('evaluation-status').textContent=`当前时间：${states.join('　 /　 ')}。当次核对 ${timeLabel(result.evaluated_at)}，行情核对截止 ${view.format(result.observed_through,true)} · ${view.zone}。到期不会自动补取行情或更新评分。`;
   for(const element of $('evaluation-content').querySelectorAll<HTMLElement>('[data-maturity-hours]')){const hours=Number(element.dataset.maturityHours);element.textContent=`当前时间${Date.now()/1000>=f.anchor_time+hours*3600?'已到期':'未到期'}`;}
  }else{
   const pending=states.map(value=>value.includes('已到期')?value+' · 尚未核对':value);
@@ -172,36 +182,55 @@ function hoverExperiment(t:number|undefined){
  if(!Number.isInteger(idx)||idx<0||idx>=f.future_count){$('hover').textContent=`${view.format(t,true)} · 实验锚点，无真实未来 OHLC`;return;}
  const stage=f.stages.find(s=>idx+1>=s.start_step&&idx+1<=s.end_step)!;
  const actual=experiment.evaluation.status==='available'?experiment.evaluation.result.actual_points.find(point=>point.time===t):undefined;
- $('hover').textContent=`${view.format(t,true)} · ${actual?'已核验实际收盘 '+actual.price.toFixed(2)+' · ':''}实验代表路径 ${f.scenarios.filter(s=>view!.paths.get(s.id)?.options().visible).map(s=>CATEGORY_LABELS[s.id]+' '+s.points[idx].price.toFixed(2)).join(' / ')}\n模型范围 ${stage.lower.toFixed(2)}–${stage.upper.toFixed(2)} · 未经校准`;
+ $('hover').textContent=`${view.format(t,true)} · ${actual?'已核验实际收盘 '+actual.price.toFixed(2)+' · ':''}实验代表路径 ${f.scenarios.filter(s=>view!.paths.get(s.id)?.options().visible).map(s=>CATEGORY_STYLE[s.id].symbol+' '+CATEGORY_LABELS[s.id]+' '+s.points[idx].price.toFixed(2)).join(' / ')}\n模型范围 ${stage.lower.toFixed(2)}–${stage.upper.toFixed(2)} · 未经校准`;
 }
 function renderExperimentEvidence(){
- const run=experiment!;const f=run.forecast;const historical=$('history-learning-content');historical.replaceChildren();const addHistory=(text:string)=>{const p=document.createElement('p');p.textContent=text;historical.append(p);};const historySummary=experimentIndex?.summary;if(historySummary)addHistory(`历史 ${historySummary.total_runs} 期；已核验96节点成熟 ${historySummary.verified_mature_runs} 期；及时发布 ${historySummary.valid_runs} 期；迟到 ${historySummary.late_runs} 期；失败或无效 ${historySummary.failed_runs} 期。上述期数包含重叠窗口，不等于独立训练样本数。`);else addHistory('当前接口尚无完整历史学习汇总，仅展示已读取档案。');addHistory(`当前${selectionMode==='follow_latest'?'跟随最新':'固定回看'}；列表每页最多30期。索引最近校验 ${experimentIndex?.verified_at??experimentIndex?.checked_at??'未知'}。`);addHistory(`本次冻结基准样本 ${run.basis?.base_count??0} 个；反馈案例 ${run.basis?.case_ids.length??0} 个。案例使用当时实际可用证据；新结果不会改写历史输入。`);const target=$('experiment-summary');target.replaceChildren();
+ const run=experiment!;const f=run.forecast;const ranked=rankProbabilities(f.scenarios),leaders=ranked.filter(s=>s.probability_24h===ranked[0].probability_24h);$('forecast-summary').textContent=`${leaders.map(s=>CATEGORY_LABELS[s.id]).join('、')}${leaders.length>1?'并列':''}概率最高 · ${formatProbability(ranked[0].probability_24h)}`;const historical=$('history-learning-content');historical.replaceChildren();const addHistory=(text:string)=>{const p=document.createElement('p');p.textContent=text;historical.append(p);};const historySummary=experimentIndex?.summary;if(historySummary)addHistory(`历史 ${historySummary.total_runs} 期；已核验96节点成熟 ${historySummary.verified_mature_runs} 期；及时发布 ${historySummary.valid_runs} 期；迟到 ${historySummary.late_runs} 期；失败或无效 ${historySummary.failed_runs} 期。上述期数包含重叠窗口，不等于独立训练样本数。`);else addHistory('当前接口尚无完整历史学习汇总，仅展示已读取档案。');addHistory(`当前${selectionMode==='follow_latest'?'跟随最新':'固定回看'}；列表每页最多30期。索引最近校验 ${timeLabel(experimentIndex?.verified_at??experimentIndex?.checked_at)}。`);addHistory(`本次冻结基准样本 ${run.basis?.base_count??0} 个；反馈案例 ${run.basis?.case_ids.length??0} 个。案例使用当时实际可用证据；新结果不会改写历史输入。`);const target=$('experiment-summary');target.replaceChildren();
  const add=(text:string)=>{const p=document.createElement('p');p.textContent=text;target.append(p);};
  add(f.summary);
  if(f.calibration){const c=f.calibration;evaluationTable(target,['24h 类别','原始概率','历史基准率','最终概率'],f.scenarios.map((scenario,i)=>[CATEGORY_LABELS[scenario.id],percentage(c.raw_probabilities[i]),percentage(c.base[i]),percentage(scenario.probability_24h)]),'本次概率依据');add(`固定混合系数 λ=${c.lambda}；原始主路径 ${CATEGORY_LABELS[c.raw_main as keyof typeof CATEGORY_LABELS]}，最终主路径 ${CATEGORY_LABELS[c.final_main as keyof typeof CATEGORY_LABELS]}。主路径按最大概率选择，同值按固定类别顺序。`);}
- if(run.basis){const b=run.basis;add(`冻结反馈 ${b.feedback_mode}：${b.case_ids.length} 个案例；历史基准率 ${b.base_count} 个非重叠成熟样本，截止 ${b.base_cutoff??'未知'}。`);add(`衍生品数据已采集 ${b.derivatives_collected} 类，本次${b.derivatives_incorporated?'已纳入':'未纳入'}；官方日历已采集 ${b.calendar_collected} 项，纳入 ${b.calendar_included} 项。`);if(b.case_ids.length)add('本次引用案例：'+b.case_ids.join('、'));}else add('历史版本未记录反馈和补充输入信息；不补写为已学习。');
+ if(run.basis){const b=run.basis;add(`冻结反馈 ${b.feedback_mode}：${b.case_ids.length} 个案例；历史基准率 ${b.base_count} 个非重叠成熟样本，截止 ${timeLabel(b.base_cutoff)}。`);add(`衍生品数据已采集 ${b.derivatives_collected} 类，本次${b.derivatives_incorporated?'已纳入':'未纳入'}；官方日历已采集 ${b.calendar_collected} 项，纳入 ${b.calendar_included} 项。`);if(b.case_ids.length)add('本次引用案例：'+b.case_ids.join('、'));}else add('历史版本未记录反馈和补充输入信息；不补写为已学习。');
  add(`概率来源：官方 Codex 主观判断，未经校准；未来24h类别概率属于完整事件类别，不表示精准命中某条折线。6/12h仅裁切视窗；隐藏路径不修改概率。`);
  add(`事件覆盖：${f.event_risk_label} · ${f.event_mode}。${f.limitations.join('；')}`);
  const metadata=document.createElement('details');const summary=document.createElement('summary');summary.textContent='来源与预报版本';metadata.append(summary);
  for(const text of [`run：${run.run_id}`,`来源：${run.history.source.provider} · ${run.history.instrument} · ${run.history.market_type} · ${run.history.price_type} · 15m · ${run.history.source.endpoint}`,
   `模型配置：${run.model.config.provider} · ${run.model.config.selection} · ${run.model.config.cli_version} · 实际模型标识：${run.model.identity??'unknown'} · 标识可见性：${run.model.identity_visibility}`,
   `方法：${f.method_version} · 提示词：${f.prompt_version} · 契约：${f.schema_version}`,
-  `生成开始 ${f.generation_started_at} · 生成结束 ${f.generation_ended_at}`,
-  `信息冻结 ${f.information_frozen_at} · 数据截止 ${new Date(f.data_cutoff*1000).toISOString()} · 事件截止 ${f.event_cutoff??'unknown'}`,
-  `首次发布时间 ${f.published_at} · 原始发布状态 ${f.status}`,
+  `生成开始 ${timeLabel(f.generation_started_at)} · 生成结束 ${timeLabel(f.generation_ended_at)}`,
+  `信息冻结 ${timeLabel(f.information_frozen_at)} · 数据截止 ${timeLabel(f.data_cutoff)} · 事件截止 ${timeLabel(f.event_cutoff)}`,
+  `首次发布时间 ${timeLabel(f.published_at)} · 原始发布状态 ${f.status}`,
   `输入 SHA ${run.hashes.input_sha256} · 预报 SHA ${run.hashes.forecast_sha256}`]){const p=document.createElement('p');p.textContent=text;metadata.append(p);}target.append(metadata);
  const scenarios=$('scenario-evidence');scenarios.replaceChildren();
- for(const s of f.scenarios){const item=document.createElement('details');item.className='scenario-card';const title=document.createElement('summary');title.textContent=`${CATEGORY_LABELS[s.id]} · 未来24h ${(s.probability_24h*100).toFixed(1)}%`;item.append(title);
+ for(const s of f.scenarios){const item=document.createElement('details');item.className='scenario-card';const title=document.createElement('summary');title.textContent=`${CATEGORY_LABELS[s.id]} · 未来24h ${formatProbability(s.probability_24h)}`;item.append(title);
   for(const text of [`事件定义（${f.method_version}）：${CATEGORY_DEFINITIONS[s.id]}`,`支持依据：${s.support.join('；')}`,`反对依据：${s.counterevidence.join('；')}`,`失效条件：${s.invalidations.join('；')}`]){const p=document.createElement('p');p.textContent=text;item.append(p);}scenarios.append(item);}
  const stages=document.createElement('details');const title=document.createElement('summary');title.textContent='分阶段模型范围与依据 · 未经校准';stages.append(title);
  for(const s of f.stages){const p=document.createElement('p');p.textContent=`${(s.start_step-1)/4}–${s.end_step/4}h：${s.lower}–${s.upper} USDT · ${s.explanation}`;stages.append(p);}target.append(stages);
 }
+function renderProbabilityLegend(visibility=new Map<string,boolean>()){
+ const run=experiment;if(!run||!view)return;
+ $('emphasize-top').removeAttribute('disabled');
+ for(const s of rankProbabilities(run.forecast.scenarios)){
+  const label=document.createElement('label');label.className='legend-item path-toggle probability-row';label.dataset.category=s.id;
+  const input=document.createElement('input');input.type='checkbox';input.checked=visibility.get(s.id)??view.paths.get(s.id)?.options().visible??true;input.setAttribute('aria-label',CATEGORY_LABELS[s.id]);view.setPath(s.id,input.checked);input.onchange=()=>view?.setPath(s.id,input.checked);
+  const swatch=document.createElement('i');swatch.className='path-swatch';
+  const name=document.createElement('span');name.className='probability-name';name.textContent=CATEGORY_STYLE[s.id].symbol+' · '+CATEGORY_LABELS[s.id];
+  const number=document.createElement('strong');number.textContent=formatProbability(s.probability_24h);number.title='未来24h类别概率';
+  const track=document.createElement('span');track.className='probability-track';track.setAttribute('aria-hidden','true');const fill=document.createElement('span');fill.style.width=`${s.probability_24h*100}%`;fill.style.backgroundColor=CATEGORY_STYLE[s.id].color;track.append(fill);
+  label.append(input,swatch,name,number,track);$('legend').append(label);
+ }
+ updateProbabilityEmphasis();
+}
+function updateProbabilityEmphasis(){
+ if(!experiment)return;const top=topProbabilityIds(experiment.forecast.scenarios);view?.setProbabilityEmphasis(topOnly);$('emphasize-top').setAttribute('aria-pressed',String(topOnly));
+ for(const s of experiment.forecast.scenarios){const row=$('legend').querySelector<HTMLElement>(`[data-category="${s.id}"]`);if(!row)continue;const style=probabilityStyle(s.id,s.probability_24h,topOnly&&!top.has(s.id));const swatch=row.querySelector<HTMLElement>('.path-swatch')!;swatch.style.borderColor=style.stroke;swatch.style.borderTopWidth=style.width+'px';row.dataset.emphasized=String(!topOnly||top.has(s.id));}
+}
+$('emphasize-top').onclick=()=>{topOnly=!topOnly;updateProbabilityEmphasis();};
 const statusLabel={valid:'有效发布',late:'迟到发布',failed:'运行失败',incomplete:'尚未完成',invalid:'档案无效'};
 const reasonLabel:Record<string,string>={forecast_expired:'预报已过期',publication_late:'发布迟到',preparation_failed:'输入准备失败',generation_failed:'模型生成失败',validation_failed:'输出校验失败',generation_incomplete:'生成尚未完成',publication_missing:'尚无有效发布',archive_invalid:'档案校验失败'};
 function indexOptions(index:DisplayIndex,chosen:string|undefined){
  select('run').replaceChildren();
- for(const r of index.runs){const o=document.createElement('option');o.value=r.run_id;o.textContent=`${r.published_at??r.created_at} · ${statusLabel[r.status]}${r.reason?' · '+reasonLabel[r.reason]:''} · ${r.run_id}`;select('run').append(o);}
- if(chosen&&!index.runs.some(r=>r.run_id===chosen)&&experiment?.run_id===chosen){const option=document.createElement('option');option.value=chosen;option.textContent='固定回看 · '+chosen;select('run').append(option);}
+ for(const r of index.runs){const o=document.createElement('option');o.value=r.run_id;o.textContent=`${timeLabel(r.published_at??r.created_at)} · ${statusLabel[r.status]}${r.reason?' · '+reasonLabel[r.reason]:''}`;select('run').append(o);}
+ if(chosen&&!index.runs.some(r=>r.run_id===chosen)&&experiment?.run_id===chosen){const option=document.createElement('option');option.value=chosen;option.textContent='固定回看 · '+timeLabel(experiment.forecast.published_at);select('run').append(option);}
  $('history-more').hidden=index.next_cursor==null;
  if(chosen)select('run').value=chosen;select('run').disabled=!index.runs.length;
 }
@@ -210,8 +239,9 @@ function experimentStatus(index:DisplayIndex,run:DisplayRun,statusOnly=false){
  const expired=Date.now()/1000>=f.anchor_time+f.horizon_seconds;
  const recentFailed=latest&&latest.run_id!==run.run_id&&latest.status!=='valid';
  const state=f.status==='late'?'迟到预报 · 无完整事前视域':expired?'预报已过期 · 历史回看':recentFailed?'旧快照 · 最近运行未成功':index.latest_run_id===run.run_id?'最新有效预报（发布时）':'历史回看 · 非最新有效预报';
- $('run-status').textContent=`${state} · 首次发布 ${f.published_at}`;
- const warning=latest&&!['valid'].includes(latest.status)?`最近运行 ${latest.run_id}：${statusLabel[latest.status]}${latest.reason?' · '+reasonLabel[latest.reason]:''}。当前所示仍为 ${run.run_id} 的原始快照。`:'';
+ $('run-status').textContent=`${selectionMode==='history_pinned'?'固定回看 · ':''}${state} · 首次发布 ${timeLabel(f.published_at)}`;
+ const newAvailable=selectionMode==='history_pinned'&&!!index.latest_run_id&&index.latest_run_id!==run.run_id;$('new-forecast').hidden=!newAvailable;$('new-forecast').textContent=newAvailable?'有较新的有效预报，当前仍固定回看；点击“返回最新”查看。':'';
+ const warning=latest&&!['valid'].includes(latest.status)?`最近运行 ${timeLabel(latest.created_at)}：${statusLabel[latest.status]}${latest.reason?' · '+reasonLabel[latest.reason]:''}。当前保留上次已加载的原始快照。`:'';
  if(statusOnly)return;
  const evaluation=run.evaluation.status==='available'?'已加载独立核对结果':run.evaluation.status==='failed'?(run.evaluation.reason==='evaluation_unsupported'?'此评分版本当前无法重算':run.evaluation.reason==='evaluation_incomplete'?'核对尚未完成 / 无有效结果':'核对失败 / 无有效结果'):'尚未核对实际结果';
  showError(warning);$('load-status').textContent=`实验档案已校验 · ${state} · ${evaluation}`;
@@ -225,7 +255,7 @@ async function reloadExperiment(preferLatest=false){
   const requested=preferLatest||activeMode!=='experiment'?undefined:select('run').value||undefined;
   if(requested&&index.page_offset===undefined&&!index.runs.some(r=>r.run_id===requested))throw Error('所选历史预报已从索引缺失，未自动替换其他 run');
   const chosen=requested??index.latest_run_id??index.runs.find(r=>r.status==='valid'||r.status==='late')?.run_id;
-  if(!chosen){if(id!==request)return;view?.destroy();view=undefined;experiment=undefined;activeMode='experiment';experimentIndex=index;indexOptions(index,undefined);setModePresentation();$('legend').replaceChildren();$('experiment-summary').textContent='暂无已发布实验预报。';$('scenario-evidence').replaceChildren();$('evaluation-content').replaceChildren();$('evaluation-status').textContent='暂无可核对的已发布预测。';updateExperimentMeta();$('run-status').textContent=index.latest_attempt?`最近运行：${statusLabel[index.latest_attempt.status]} · ${index.latest_attempt.reason?reasonLabel[index.latest_attempt.reason]:'尚无有效发布'}`:'暂无实验预测';$('load-status').textContent='暂无实验预测 · 等待有效发布';showError('');select('window').disabled=true;return;}
+  if(!chosen){if(id!==request)return;view?.destroy();view=undefined;experiment=undefined;activeMode='experiment';experimentIndex=index;indexOptions(index,undefined);setModePresentation();$('legend').replaceChildren();$('forecast-summary').textContent='暂无可显示的已发布预报';$('new-forecast').hidden=true;$('emphasize-top').setAttribute('disabled','');$('experiment-summary').textContent='暂无已发布实验预报。';$('scenario-evidence').replaceChildren();$('evaluation-content').replaceChildren();$('evaluation-status').textContent='暂无可核对的已发布预测。';updateExperimentMeta();$('run-status').textContent=index.latest_attempt?`最近运行：${statusLabel[index.latest_attempt.status]} · ${index.latest_attempt.reason?reasonLabel[index.latest_attempt.reason]:'尚无有效发布'}`:'暂无实验预测';$('load-status').textContent='暂无实验预测 · 等待有效发布';showError('');select('window').disabled=true;return;}
   const run=await loadDisplayRun(chosen,controller.signal);if(id!==request)return;
   const indexed=index.runs.find(r=>r.run_id===chosen)!;
   if(indexed&&(indexed.published_at!==run.forecast.published_at||indexed.status!==run.forecast.status))throw Error('索引与预报状态或首次发布时间不一致');
@@ -237,13 +267,13 @@ async function reloadExperiment(preferLatest=false){
   view?.destroy();view=undefined;experimentLoadFailed=false;activeMode='experiment';experiment=run;experimentIndex=index;
   view=new WeatherChart($('chart'),projection.history,projection.forecast,hover);
   if(run.evaluation.status==='available')view.setActual(run.evaluation.result.actual_points);
-  view.setTimezone(select('timezone').value==='UTC'?'UTC':Intl.DateTimeFormat().resolvedOptions().timeZone);view.setWindow(Number(select('window').value));
+  view.setTimezone(selectedZone());view.setWindow(Number(select('window').value));
   $('legend').replaceChildren();const h=document.createElement('span');h.className='legend-item';h.textContent='▮ 当时真实历史 K 线';$('legend').append(h);
   if(run.evaluation.status==='available'&&run.evaluation.result.actual_points.length){const actual=document.createElement('span');actual.className='legend-item actual-legend';const swatch=document.createElement('i');swatch.className='path-swatch';actual.append(swatch,document.createTextNode('已核验实际收盘'));$('legend').append(actual);}
-  for(const [i,s]of run.forecast.scenarios.entries()){const label=document.createElement('label');label.className='legend-item path-toggle';const input=document.createElement('input');input.type='checkbox';input.checked=visibility.get(s.id)??true;input.setAttribute('aria-label',CATEGORY_LABELS[s.id]);view.setPath(s.id,input.checked);input.onchange=()=>view?.setPath(s.id,input.checked);const swatch=document.createElement('i');swatch.className='path-swatch';swatch.style.borderColor=colors[i%colors.length];swatch.style.borderStyle=['solid','dashed','dotted'][i%3];label.append(input,swatch,document.createTextNode(`${CATEGORY_LABELS[s.id]} · 未来24h ${(s.probability_24h*100).toFixed(1)}%`));$('legend').append(label);}
+  renderProbabilityLegend(visibility);
   indexOptions(index,run.run_id);setModePresentation();renderExperimentEvidence();renderEvaluation();updateExperimentMeta();experimentStatus(index,run);hover(undefined);
   select('window').disabled=false;select('timezone').disabled=false;($('reset')as HTMLButtonElement).disabled=false;
- }catch(error){if(id!==request)return;experimentLoadFailed=true;const message=error instanceof Error?error.message:String(error);showError(`实验档案加载失败：${message}。请恢复有效档案后重载；当前${experiment?'仍显示旧预报 '+experiment.run_id:'显示内容未切换'}，不是本次最新成功。`);$('load-status').textContent='加载失败 · 保留旧快照，未更新成功';$('run-status').textContent=experiment?'旧快照 · 本次更新失败':'实验模式加载失败';}
+ }catch(error){if(id!==request)return;experimentLoadFailed=true;const message=error instanceof Error?error.message:String(error);showError(`实验档案加载失败：${message}。请恢复有效档案后重载；当前${experiment?'仍显示 '+timeLabel(experiment.forecast.published_at)+' 的旧预报':'显示内容未切换'}，不是本次最新成功。`);$('load-status').textContent='加载失败 · 保留旧快照，未更新成功';$('run-status').textContent=experiment?'旧快照 · 本次更新失败':'实验模式加载失败';}
 }
 $('history-more').onclick=async()=>{const cursor=experimentIndex?.next_cursor;if(cursor==null)return;const id=++request;controller?.abort();controller=new AbortController();try{const page=await loadDisplayIndex(controller.signal,cursor);if(id!==request)return;experimentIndex=page;indexOptions(page,experiment?.run_id);selectionMode='history_pinned';}catch{if(id===request)showError('历史列表读取失败，当前预报保持不变');}};
 async function reload(){if(select('mode').value==='experiment')await reloadExperiment();else await reloadDemo();}

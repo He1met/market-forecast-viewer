@@ -45,7 +45,7 @@ async function fixtureRoutes(page:Page,run:DisplayRun){
  await page.route('**/api/m1/index',route=>route.fulfill({json:indexFor(run)}));
  await page.route('**/api/m1/runs/'+run.run_id,route=>route.fulfill({json:run}));
 }
-async function openExperiment(page:Page){await page.goto('/?test=1');await expect(page.locator('#load-status')).toContainText('已校验');await page.getByLabel('查看内容',{exact:true}).selectOption('experiment');await expect(page.locator('#load-status')).toContainText('实验档案已校验');}
+async function openExperiment(page:Page){await page.goto('/?test=1');await expect(page.locator('#load-status')).toContainText('已校验');await page.getByLabel('查看内容',{exact:true}).selectOption('experiment');await expect(page.locator('#load-status')).toContainText('实验档案已校验');await page.locator('#results-learning>summary').click();}
 async function evidence(page:Page,name:string,project:string,kind:'real'|'synthetic'){
  await mkdir('artifacts/m13/ui',{recursive:true});const file=`artifacts/m13/ui/${name}-${project}.png`;
  await page.screenshot({path:file,fullPage:true});await writeFile(file+'.json',JSON.stringify({visibility:'LOCAL_ONLY',evidence_kind:kind,user_approved:false,viewport:page.viewportSize(),dpr:await page.evaluate(()=>devicePixelRatio),screenshot_sha256:createHash('sha256').update(await readFile(file)).digest('hex'),snapshot:await snapshot(page)},null,2));

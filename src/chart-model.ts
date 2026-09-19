@@ -19,6 +19,7 @@ export type ExperimentStage = {
 export type ExperimentChartForecast = ForecastDrawing & {
   mode: 'experiment';
   run_id: string;
+  probabilities: Record<string, number>;
   stages: ExperimentStage[];
   bands: { kind: 'model_range_estimate'; label: string };
 };
@@ -46,6 +47,7 @@ export function toExperimentChart(run: DisplayRun): { history: ChartHistory; for
     history: run.history,
     forecast: {
       mode: 'experiment', run_id: run.run_id,
+      probabilities: Object.fromEntries(f.scenarios.map(s => [s.id, s.probability_24h])),
       anchor_time: f.anchor_time, anchor_price: f.anchor_price,
       horizon_seconds: f.horizon_seconds, step_seconds: f.step_seconds,
       scenarios: f.scenarios.map(scenario => ({
