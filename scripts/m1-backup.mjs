@@ -11,12 +11,15 @@ export function backupFaultDomain(sourceDevice,targetDevice){return{
  fault_domain_verified:false,
  fault_domain_reason:String(sourceDevice)===String(targetDevice)?'same_filesystem':'physical_device_or_approved_remote_evidence_missing',
 };}
-async function files(root,dir='') {
- const result=[];if(!await exists(path.join(root,dir)))return result;
- await safePath(root,path.join(root,dir));
- for(const e of await fs.readdir(path.join(root,dir),{withFileTypes:true})) {
+async function files(root,dir='',budget=()=>{},visit=async()=>{}) {
+ budget();
+ const result=[],present=await exists(path.join(root,dir));budget();if(!present)return result;
+ await safePath(root,path.join(root,dir));budget();
+ const entries=await fs.readdir(path.join(root,dir),{withFileTypes:true});budget();
+ for(const e of entries) {
+  budget();await visit();budget();
   check(!e.isSymbolicLink(),'BACKUP_SYMLINK');const name=path.posix.join(dir,e.name);
-  if(e.isDirectory())result.push(...await files(root,name));else if(e.isFile())result.push(name);else throw Error('BACKUP_FILE_TYPE');
+  if(e.isDirectory())result.push(...await files(root,name,budget,visit));else if(e.isFile())result.push(name);else throw Error('BACKUP_FILE_TYPE');
  }return result.sort();
 }
 export async function verifyBackupTarget({dataRoot,runtimeHome,target,deviceId,minimumFreeBytes=0}) {
@@ -33,28 +36,73 @@ async function backupLock(target,work) {
  const dir=path.join(target,'.backup-lock'),token=randomUUID();
  try{await fs.mkdir(dir);}catch(e){if(e.code==='EEXIST')return{status:'skipped',reason:'BACKUP_BUSY'};throw e;}
  await writeOnce(target,path.join(dir,'owner.json'),{token,pid:process.pid,started_at:new Date().toISOString()});
- try{return await work();}finally{const owner=await readJson(target,path.join(dir,'owner.json'));check(owner.token===token,'BACKUP_OWNER_CHANGED');check((await fs.readdir(dir)).sort().join(',')==='owner.json','BACKUP_LOCK_CONTENTS_CHANGED');await fs.unlink(path.join(dir,'owner.json'));await fs.rmdir(dir);}
+ const guard=async()=>{const owner=await readJson(target,path.join(dir,'owner.json'));check(owner.token===token,'BACKUP_OWNER_CHANGED');};
+ try{return await work(guard);}finally{const owner=await readJson(target,path.join(dir,'owner.json'));check(owner.token===token,'BACKUP_OWNER_CHANGED');check((await fs.readdir(dir)).sort().join(',')==='owner.json','BACKUP_LOCK_CONTENTS_CHANGED');await fs.unlink(path.join(dir,'owner.json'));await fs.rmdir(dir);}
+}
+// Every file keeps safe-path validation and two byte/hash reads. The business
+// mutex stays held across both passes; expensive identity checks are bounded by
+// 32 files or 250 ms between checks, plus every phase boundary. A slow await can
+// exceed that scheduling interval; budget checks after it reject the snapshot.
+export async function captureSnapshot({dataRoot,runtimeHome,mutex,maxSnapshotMs=15000,maxBytes=1024**3}) {
+ const start=performance.now(),captured=[],sources=[];
+ const diagnostics={phase:'scan',source_files:0,captured_files:0,verified_files:0,total_bytes:0,guard_checks:0,max_batch_reserved_bytes:0,max_inflight_files:0,phase_ms:{}};
+ let phaseStart=start,lastGuard=start,sinceGuard=0;
+ const budget=()=>check(performance.now()-start<maxSnapshotMs,'BACKUP_SNAPSHOT_DEADLINE');
+ const guard=async(force=false)=>{budget();if(force||sinceGuard>=29||performance.now()-lastGuard>=250){await mutex.guard();diagnostics.guard_checks++;budget();lastGuard=performance.now();sinceGuard=0;}};
+ const phase=name=>{const now=performance.now();diagnostics.phase_ms[diagnostics.phase]=now-phaseStart;diagnostics.phase=name;phaseStart=now;};
+ try {
+  await guard(true);
+  for(const dir of roots)for(const name of await files(dataRoot,dir,budget,async()=>{await guard();sinceGuard++;}))sources.push({root:dataRoot,name,archive:name});
+  if(runtimeHome)for(const name of await files(runtimeHome,'',budget,async()=>{await guard();sinceGuard++;}))sources.push({root:runtimeHome,name,archive:'runtime-snapshot/'+name});
+  diagnostics.source_files=sources.length;await guard(true);phase('capture');
+  // At most four reads and 256 MiB of declared source bytes are in flight. Drain all of them on failure before the
+  // mutex can be released. Every file still validates its complete path twice.
+  const readBatch=async (list,startIndex)=>{
+   const batch=[];let reserved=0;
+   for(let i=startIndex;i<Math.min(list.length,startIndex+4);i++){
+    budget();const source=list[i],stat=await fs.stat(path.join(source.root,source.name));budget();
+    check(stat.isFile()&&stat.size<=256*1024*1024,'FILE_SIZE_OR_TYPE');
+    if(batch.length&&reserved+stat.size>256*1024*1024)break;
+    batch.push({source,limit:stat.size});reserved+=stat.size;
+   }
+   diagnostics.max_batch_reserved_bytes=Math.max(diagnostics.max_batch_reserved_bytes,reserved);
+   diagnostics.max_inflight_files=Math.max(diagnostics.max_inflight_files,batch.length);
+   const settled=await Promise.allSettled(batch.map(async ({source,limit})=>{
+    budget();const bytes=await readBytes(source.root,path.join(source.root,source.name),limit);budget();
+    check(bytes.length<=limit,'BACKUP_SOURCE_CHANGED');const sha256=digest(bytes);budget();return{...source,bytes,sha256};
+   }));
+   budget();const failed=settled.find(x=>x.status==='rejected');if(failed)throw failed.reason;
+   return settled.map(x=>x.value);
+  };
+  for(let i=0;i<sources.length;){
+   await guard();const batch=await readBatch(sources,i);
+   for(const source of batch){diagnostics.total_bytes+=source.bytes.length;check(diagnostics.total_bytes<=maxBytes,'BACKUP_SNAPSHOT_SIZE');captured.push(source);diagnostics.captured_files++;sinceGuard++;}
+   i+=batch.length;budget();
+  }
+  await guard(true);phase('verify');
+  for(let i=0;i<captured.length;){
+   await guard();const batch=await readBatch(captured,i);
+   for(let j=0;j<batch.length;j++){check(batch[j].sha256===captured[i+j].sha256,'BACKUP_SOURCE_CHANGED');diagnostics.verified_files++;sinceGuard++;}
+   i+=batch.length;budget();
+  }
+  await guard(true);phase('completed');diagnostics.elapsed_ms=performance.now()-start;
+  return{captured,size:diagnostics.total_bytes,diagnostics};
+ }catch(error){diagnostics.phase_ms[diagnostics.phase]=performance.now()-phaseStart;diagnostics.elapsed_ms=performance.now()-start;error.snapshot_diagnostics={...diagnostics};throw error;}
 }
 export async function backup({dataRoot,runtimeHome,target,deviceId,minimumFreeBytes=0,port,releaseId,slotKey,maxSnapshotMs=15000,maxBytes=1024**3}) {
  const targetStat=await verifyBackupTarget({dataRoot,runtimeHome,target,deviceId,minimumFreeBytes}),sourceStat=await fs.stat(dataRoot);
- return backupLock(target,async()=>{
+ return backupLock(target,async backupGuard=>{
   const slotFile=slotKey?path.join(target,'slots',digest(slotKey)+'.json'):null;if(slotFile&&await exists(slotFile)){const prior=await readJson(target,slotFile);const manifest=await readJson(target,path.join(target,'manifests',prior.id+'.json'));return{status:'completed',already_completed:true,manifest};}
   const mutex=await businessMutex({dataRoot,port,releaseId,task:'backup'});if(mutex.status!=='ACQUIRED')return{status:'skipped',reason:mutex.status};
-  const captured=[],start=performance.now();let size=0;
-  try {
-   const sources=[];for(const dir of roots)for(const name of await files(dataRoot,dir))sources.push({root:dataRoot,name,archive:name});
-   // Runtime metadata is restored only into quarantine, never as an active installation.
-   if(runtimeHome)for(const name of await files(runtimeHome))sources.push({root:runtimeHome,name,archive:'runtime-snapshot/'+name});
-   for(const source of sources){check(performance.now()-start<maxSnapshotMs,'BACKUP_SNAPSHOT_DEADLINE');await mutex.guard();const file=path.join(source.root,source.name),bytes=await readBytes(source.root,file,256*1024*1024);size+=bytes.length;check(size<=maxBytes,'BACKUP_SNAPSHOT_SIZE');captured.push({...source,bytes,sha256:digest(bytes)});}
-   // Detect append-only logs or pointers that changed during capture. No changing tail
-   // is silently certified as a stable snapshot.
-   for(const source of captured){check(performance.now()-start<maxSnapshotMs,'BACKUP_SNAPSHOT_DEADLINE');check(digest(await readBytes(source.root,path.join(source.root,source.name),256*1024*1024))===source.sha256,'BACKUP_SOURCE_CHANGED');}
-  }finally{await mutex.close();}
+  let snapshot;
+  try {snapshot=await captureSnapshot({dataRoot,runtimeHome,mutex,maxSnapshotMs,maxBytes});}
+  finally{await mutex.close();}
+  const {captured,size,diagnostics}=snapshot;
   await verifyBackupTarget({dataRoot,runtimeHome,target,deviceId:targetStat.dev,minimumFreeBytes:minimumFreeBytes+size});
   const id=new Date().toISOString().replace(/[-:.]/g,'')+'-'+randomUUID();
-  const manifest={schema:'MFV:BACKUP:v1',id,release_id:releaseId,captured_at:new Date().toISOString(),device_id:String(targetStat.dev),...backupFaultDomain(sourceStat.dev,targetStat.dev),runtime_included:Boolean(runtimeHome),files:captured.map(({archive,sha256,bytes})=>({name:archive,sha256,bytes:bytes.length})),total_bytes:size};
+  const manifest={schema:'MFV:BACKUP:v1',id,release_id:releaseId,captured_at:new Date().toISOString(),device_id:String(targetStat.dev),...backupFaultDomain(sourceStat.dev,targetStat.dev),runtime_included:Boolean(runtimeHome),snapshot_diagnostics:diagnostics,files:captured.map(({archive,sha256,bytes})=>({name:archive,sha256,bytes:bytes.length})),total_bytes:size};
   for(const entry of captured){const object=path.join(target,'objects',entry.sha256);if(!await exists(object)){const temp=path.join(target,'staging',randomUUID());await writeOnce(target,temp,entry.bytes);check(digest(await readBytes(target,temp,256*1024*1024))===entry.sha256,'BACKUP_OBJECT_MISMATCH');await fs.mkdir(path.dirname(object),{recursive:true});await fs.rename(temp,object);}check(digest(await readBytes(target,object,256*1024*1024))===entry.sha256,'BACKUP_OBJECT_MISMATCH');}
-  await writeOnce(target,path.join(target,'manifests',id+'.json'),manifest);if(slotFile)await writeOnce(target,slotFile,{id,slot_key:slotKey});return{status:'completed',manifest};
+  await backupGuard();await writeOnce(target,path.join(target,'manifests',id+'.json'),manifest);if(slotFile){await backupGuard();await writeOnce(target,slotFile,{id,slot_key:slotKey});}return{status:'completed',manifest};
  });
 }
 function validateManifest(m){check(m.schema==='MFV:BACKUP:v1'&&typeof m.id==='string'&&Array.isArray(m.files),'BACKUP_MANIFEST_INVALID');const names=new Set();for(const e of m.files){check(typeof e.name==='string'&&e.name&&!path.isAbsolute(e.name)&&!e.name.includes('\\')&&!e.name.split('/').some(p=>!p||p==='..'||p==='.')&&!names.has(e.name),'RESTORE_PATH_ESCAPE');check(/^[a-f0-9]{64}$/.test(e.sha256)&&Number.isSafeInteger(e.bytes)&&e.bytes>=0,'RESTORE_ENTRY_INVALID');names.add(e.name);}}
