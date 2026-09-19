@@ -8,7 +8,7 @@ import {requireEvidence} from '../scripts/evidence-context.mjs';
 import {newRun,freezeInput,prepareAttempt,completeAttempt,publishRun} from '../scripts/m1-archive.mjs';
 import {createDisplayReader} from '../scripts/m1-display.mjs';
 import {ops,scoreOldForecasts,scanOpsBatch} from '../scripts/m1-ops.mjs';
-import {auditCodexEvents} from '../scripts/m1-forecast.mjs';
+import {auditCodexEvents,auditCodexEventsV1} from '../scripts/m1-forecast.mjs';
 import {modelArguments} from '../scripts/m1-model.mjs';
 import {alertStore} from '../scripts/m1-alerts.mjs';
 
@@ -24,27 +24,27 @@ async function fixture(t){
  const input=await read(path.join(template,'input.json')),schema=await read(path.join(template,'output-schema.json')),raw=await fs.readFile(path.join(template,'attempt-001/raw-output.json'));
  const source=path.join(codeRoot,'src/m1-contracts.ts');
  const provenance={code_sha256:{[source]:hash(await fs.readFile(source)),'scripts/m1-forecast.mjs':hash(await fs.readFile(path.join(codeRoot,'scripts/m1-forecast.mjs')))}};
- async function add({role='production',count=2,success=false,publish=false,open=false,audit=true,legacy=false}={}){
+ async function add({role='production',count=2,success=false,publish=false,open=false,audit=true,legacy=false,oldAdapter=false,cli_version='codex-cli 0.154.0-alpha.6.2'}={}){
   const runsRoot=path.join(dataRoot,role==='production'?'forecast-runs':'m1-candidates');
   const run=await newRun(runsRoot);await freezeInput(run.runDir,input,'SYNTHETIC ELIGIBILITY ONLY',schema,provenance);
   for(let i=0;i<count;i++){
    const a=await prepareAttempt(run.runDir);if(open&&i===count-1)break;
    await fs.writeFile(a.rawFile,raw);
-   const thread='SYNTHETIC-THREAD-'+a.attempt_id,workspace=path.join(a.attemptDir,'model-work'),cli_version='codex-cli 0.154.0-alpha.6.2';
+   const thread='SYNTHETIC-THREAD-'+a.attempt_id,workspace=path.join(a.attemptDir,'model-work');
    const invocation={schema:'MFV:MODEL_INVOCATION:v1',args:modelArguments({workspace,schema:path.join(run.runDir,'output-schema.json'),output:a.rawFile}),working_directory:workspace,cli_version,requested_model:'gpt-6-astra',requested_reasoning:'medium',provider:'official_codex',frozen_input_sha256:hash(await fs.readFile(path.join(run.runDir,'input.json')))};
    const notice='Code Mode is unavailable because code-mode host is disabled. Code mode will fail closed; enable `features.code_mode_host` and install `codex-code-mode-host`.';
-   const events=[{type:'thread.started',thread_id:thread},...(!success?[{type:'item.completed',item:legacy?{id:'item_0',type:'error',message:notice}:{id:'item_0',type:'command_execution',command:'SYNTHETIC forbidden tool'}}]:[]),{type:'turn.started'},{type:'item.completed',item:{id:'item_1',type:'agent_message',text:raw.toString()}},{type:'turn.completed',usage:{input_tokens:1,output_tokens:1}}];
+   const events=[{type:'thread.started',thread_id:thread},...(!success?[{type:'item.completed',item:legacy||oldAdapter?{id:'item_0',type:'error',message:notice}:{id:'item_0',type:'command_execution',command:'SYNTHETIC forbidden tool'}}]:[]),{type:'turn.started'},{type:'item.completed',item:{id:'item_1',type:'agent_message',text:raw.toString()}},{type:'turn.completed',usage:{input_tokens:1,output_tokens:1}}];
    const stream=events.map(e=>JSON.stringify(e)).join('\n')+'\n',invocationBytes=JSON.stringify(invocation);await fs.writeFile(path.join(a.attemptDir,'events.jsonl'),stream);await fs.writeFile(path.join(a.attemptDir,'invocation.json'),invocationBytes);
-   const parsed=auditCodexEvents(stream,legacy?undefined:{kind:'installed_frozen_input',cli_version,args:invocation.args});
+   const parsed=(oldAdapter?auditCodexEventsV1:auditCodexEvents)(stream,legacy?undefined:{kind:'installed_frozen_input',cli_version,args:invocation.args});
    const event_audit={schema:'MFV:CODEX_EVENT_AUDIT:v1',events_sha256:hash(stream),invocation_sha256:hash(invocationBytes),cli_version,controlled_disabled_context:parsed.controlled_disabled_context,startup_notice_count:parsed.startup_notice_count,startup_notices:parsed.startup_notices,unexpected_event_count:parsed.unexpected_count,unexpected_tool_count:parsed.unexpected_tool_count,turn_completed:parsed.turn_completed,failed:parsed.failed};
    const info={exit_code:success?0:-1,error:success?null:'MODEL_ATTEMPT_REJECTED',cli_exit_code:0,...(audit&&!legacy?{event_audit}:{}),unexpected_tool_events:parsed.unexpected_count,turn_completed:legacy?null:parsed.turn_completed,model_thread_id:thread,model_identity_visibility:'not_exposed_by_jsonl',model_config:{provider:'official_codex',selection:'existing_local_cli_configuration',cli_version,auth_method:'chatgpt_verified',sandbox:'read-only',output_schema:true,startup_warning_count:parsed.startup_warning_count}};
    await completeAttempt(run.runDir,a.attempt_id,info);
    if(publish)await publishRun(run.runDir,a.rawFile,{attempt_id:a.attempt_id});
   }
-  if(legacy){
+  if(legacy||oldAdapter){
    // Synthetic migration fixture: reproduce the old frozen parser identity and
    // rebind its frozen/attempt hashes; never alter a real archive.
-   const file=path.join(run.runDir,'provenance.json'),v=await read(file);v.code_sha256['scripts/m1-forecast.mjs']='9016c56108a71f3daacbaef25db705ab306a06ac4600889712ab892a680d7a4d';await write(file,v);
+   const file=path.join(run.runDir,'provenance.json'),v=await read(file);v.code_sha256['scripts/m1-forecast.mjs']=oldAdapter?'b280c281ad131160aacf1fc20b0bd893ccc73e2e13e9d794f1a444f0c64212da':'9016c56108a71f3daacbaef25db705ab306a06ac4600889712ab892a680d7a4d';await write(file,v);
    const mfile=path.join(run.runDir,'manifest.json'),m=await read(mfile);m.files['provenance.json']=hash(await fs.readFile(file));await write(mfile,m);
    for(const attempt of ['attempt-001','attempt-002']){const startFile=path.join(run.runDir,attempt,'started.json'),start=await read(startFile);start.frozen_manifest_sha256=hash(await fs.readFile(mfile));await write(startFile,start);const receiptFile=path.join(run.runDir,attempt,'receipt.json'),receipt=await read(receiptFile);receipt.started_sha256=hash(await fs.readFile(startFile));await write(receiptFile,receipt);}
   }
@@ -131,4 +131,22 @@ test('SYNTHETIC legacy rejection requires its exact parser, notice, invocation a
   async r=>{const file=path.join(r.runDir,'attempt-001/invocation.json'),v=await read(file);v.frozen_input_sha256='a'.repeat(64);await write(file,v);},
   async r=>{const file=path.join(r.runDir,'attempt-001/invocation.json'),v=await read(file);v.args.push('--enable','code_mode');await write(file,v);},
  ]){const r=await f.add({legacy:true});await mutate(r);await assert.rejects(r.reader.readScoringRun(r.run_id));}
+});
+
+
+test('SYNTHETIC frozen b280 parser preserves CLI155 rejection without republishing or changing receipts',async t=>{
+ const f=await fixture(t),r=await f.add({oldAdapter:true,cli_version:'codex-cli 0.155.0-alpha.9'}),before=await inventory(r.runDir);
+ assert.equal((await r.reader.readScoringRun(r.run_id)).status,'terminal_failed_not_scoreable');
+ assert.equal((await r.reader.runState(r.run_id,new Date().toISOString())).status,'failed');
+ assert.deepEqual(await inventory(r.runDir),before);await assert.rejects(fs.access(path.join(r.runDir,'publication')),/ENOENT/);
+ for(const a of ['attempt-001','attempt-002']){const file=path.join(r.runDir,a,'receipt.json'),v=await read(file);v.event_audit.controlled_disabled_context=true;await write(file,v);}
+ await assert.rejects(r.reader.readScoringRun(r.run_id),/SCORING_AUDIT_MISMATCH/);
+});
+test('SYNTHETIC unknown frozen parser or CLI version cannot justify terminal failure',async t=>{
+ const f=await fixture(t);
+ const unknown=await f.add({cli_version:'codex-cli 0.155.0-alpha.10'});await assert.rejects(unknown.reader.readScoringRun(unknown.run_id),/SCORING_INVOCATION_MISMATCH/);
+ const r=await f.add(),p=path.join(r.runDir,'provenance.json'),v=await read(p);v.code_sha256['scripts/m1-forecast.mjs']='f'.repeat(64);await write(p,v);
+ const mpath=path.join(r.runDir,'manifest.json'),m=await read(mpath);m.files['provenance.json']=hash(await fs.readFile(p));await write(mpath,m);
+ for(const a of ['attempt-001','attempt-002']){const p=path.join(r.runDir,a,'started.json'),s=await read(p);s.frozen_manifest_sha256=hash(await fs.readFile(mpath));await write(p,s);const q=path.join(r.runDir,a,'receipt.json'),receipt=await read(q);receipt.started_sha256=hash(await fs.readFile(p));await write(q,receipt);}
+ await assert.rejects(r.reader.readScoringRun(r.run_id),/SCORING_PARSER_UNSUPPORTED/);
 });

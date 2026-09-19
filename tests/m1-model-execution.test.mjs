@@ -23,14 +23,14 @@ test('spawned timeout and interruption keep actual-start evidence; spawn failure
  }
 });
 
-test('installed generation preserves the version-bound startup notice audit in its receipt',async t=>{
+for(const cliVersion of ['codex-cli 0.154.0-alpha.6.2','codex-cli 0.155.0-alpha.9']) test(`installed generation preserves notice audit for ${cliVersion}`,async t=>{
  const{root,mutex,run}=await setup(t),r=await run(),bin=path.join(root,'bin');await fs.mkdir(bin);
  const input=JSON.parse(await fs.readFile(path.join(r.runDir,'input.json'))),notice='Code Mode is unavailable because code-mode host is disabled. Code mode will fail closed; enable `features.code_mode_host` and install `codex-code-mode-host`.';
  const raw={schema_version:'m1.0',method_version:METHOD_VERSION,prompt_version:PROMPT_VERSION,anchor_time:input.anchor_time,anchor_price:100,
  scenarios:CATEGORY_IDS.map((id,i)=>({id,probability_24h:i===0?.5:.1,prices:Array.from({length:96},(_,n)=>n===0?[101,99,100.5,99.5,100,100.6][i]:[100,100,100.5,99.5,100,100][i]),support:['SYNTHETIC'],counterevidence:['SYNTHETIC'],invalidations:['SYNTHETIC']})),
  stages:[[1,24],[25,48],[49,96]].map(([start_step,end_step])=>({start_step,end_step,lower:98,upper:102,explanation:'SYNTHETIC'})),summary:'SYNTHETIC',limitations:['SYNTHETIC']};
  const frames=[{type:'thread.started',thread_id:'SYNTHETIC'},{type:'item.completed',item:{type:'error',message:notice}},{type:'turn.started'},{type:'item.completed',item:{type:'agent_message',text:'SYNTHETIC'}},{type:'turn.completed'}];
- const fake=`#!${process.execPath}\nconst fs=require('node:fs'),a=process.argv.slice(2);if(a[0]==='--version')console.log('codex-cli 0.154.0-alpha.6.2');else if(a.includes('--help'))console.log('--ignore-user-config --skip-git-repo-check --ephemeral');else if(a[0]==='login')console.log('Logged in using ChatGPT');else{process.stdin.resume();process.stdin.on('end',()=>{fs.writeFileSync(a[a.indexOf('--output-last-message')+1],${JSON.stringify(JSON.stringify(raw))});for(const row of ${JSON.stringify(frames)})console.log(JSON.stringify(row));});}\n`;
+ const fake=`#!${process.execPath}\nconst fs=require('node:fs'),a=process.argv.slice(2);if(a[0]==='--version')console.log(${JSON.stringify(cliVersion)});else if(a.includes('--help'))console.log('--ignore-user-config --skip-git-repo-check --ephemeral');else if(a[0]==='login')console.log('Logged in using ChatGPT');else{process.stdin.resume();process.stdin.on('end',()=>{fs.writeFileSync(a[a.indexOf('--output-last-message')+1],${JSON.stringify(JSON.stringify(raw))});for(const row of ${JSON.stringify(frames)})console.log(JSON.stringify(row));});}\n`;
  await fs.writeFile(path.join(bin,'codex'),fake,{mode:0o700});const old=process.env.PATH;process.env.PATH=bin+path.delimiter+'/usr/bin:/bin';t.after(()=>{process.env.PATH=old;});
  const published=await generateInstalled(r,{mutex,timeoutMs:100000,beforePublish:async()=>{}});assert.equal(published.forecast.run_id,r.run_id);
  const base=path.join(r.runDir,'attempt-001'),receipt=JSON.parse(await fs.readFile(path.join(base,'receipt.json')));
@@ -38,7 +38,7 @@ test('installed generation preserves the version-bound startup notice audit in i
  assert.equal(receipt.event_audit.events_sha256,digest(await fs.readFile(path.join(base,'events.jsonl'))));
  assert.equal(receipt.event_audit.invocation_sha256,digest(await fs.readFile(path.join(base,'invocation.json'))));
  assert.equal(receipt.event_audit.startup_notice_count,1);assert.equal(receipt.event_audit.startup_notices[0].message,notice);
- assert.equal(receipt.event_audit.cli_version,'codex-cli 0.154.0-alpha.6.2');assert.equal(receipt.event_audit.controlled_disabled_context,true);
+ assert.equal(receipt.event_audit.cli_version,cliVersion);assert.equal(receipt.event_audit.controlled_disabled_context,true);
  assert.equal(receipt.model_config.startup_warning_count,1);assert.equal(receipt.event_audit.unexpected_tool_count,0);
 });
 
