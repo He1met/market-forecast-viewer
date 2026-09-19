@@ -12,8 +12,8 @@ function runtime():RuntimeDisplay{return {schema:'MFV:M1_RUNTIME_DISPLAY:v1',che
  started_at:at,updated_at:at,completed_at:null,reason:null,forecast_id:null},
  last_success:{cycle_id:'synthetic-prior-success',completed_at:at,forecast_id:forecastId}};}
 const emptyIndex=():DisplayIndex=>({schema:'MFV:M1_INDEX:v1',checked_at:new Date().toISOString(),latest_run_id:null,latest_attempt:null,runs:[]});
-async function openExperiment(page:Page){await page.goto('/?test=1');await expect(page.locator('#load-status')).toContainText('已校验');await page.getByLabel('查看内容',{exact:true}).selectOption('experiment');await expect(page.locator('#runtime-panel')).toBeVisible();}
-async function refresh(page:Page){await page.getByRole('button',{name:'读取最新索引',exact:true}).click();}
+async function openExperiment(page:Page){await page.goto('/?test=1');await expect(page.locator('#load-status')).toContainText('已校验');await page.getByLabel('查看内容',{exact:true}).selectOption('experiment');await expect(page.locator('#runtime-panel')).toBeVisible();await page.locator('#runtime-panel>summary').click();}
+async function refresh(page:Page){await page.getByRole('button',{name:'返回最新',exact:true}).click();}
 
 test('SYNTHETIC业务状态展示未配置、运行、失败、代码变更跳过和暂停，计划时间未知',async({page},info)=>{
  let value:RuntimeDisplay={...runtime(),configuration:null,release_integrity:'unconfigured',latest_attempt:null,last_success:null};
@@ -22,15 +22,15 @@ test('SYNTHETIC业务状态展示未配置、运行、失败、代码变更跳�
  await openExperiment(page);await expect(page.locator('#runtime-details')).toContainText('业务任务未配置');
  await expect(page.locator('#runtime-details')).not.toContainText('官方任务配置未接入本页');
  await expect(page.locator('#runtime-panel')).toContainText('关闭页面不会停止业务任务');
- value=runtime();await refresh(page);await expect(page.locator('#runtime-status')).toHaveText('运行中');
+ value=runtime();await refresh(page);await expect(page.locator('#runtime-status')).toHaveText('当前运行待核验 · 官方启用状态请查看 Codex 任务');
  await expect(page.locator('#runtime-details')).toContainText('每 2 小时');await expect(page.locator('#runtime-details')).toContainText('调度时区：未知');
  await expect(page.locator('#runtime-details')).toContainText('回读时启用');await expect(page.locator('#runtime-details')).toContainText('下次官方计划时间：未知');
  await expect(page.locator('#runtime-details')).not.toContainText('官方任务配置未接入本页');
  value.latest_attempt={...value.latest_attempt!,status:'failed',completed_at:at,reason:'runtime_failed'};
- await refresh(page);await expect(page.locator('#runtime-status')).toHaveText('运行失败');
- await expect(page.locator('#runtime-details')).toContainText('旧预报首次发布时间不变');await expect(page.locator('#runtime-details')).toContainText('最近业务成功：'+at);
+ await refresh(page);await expect(page.locator('#runtime-status')).toHaveText('最近运行失败');
+ await expect(page.locator('#runtime-details')).toContainText('旧预报首次发布时间不变');await expect(page.locator('#runtime-details')).toContainText('最近业务成功：2026/09/13 15:00');
  value.latest_attempt={...value.latest_attempt!,status:'skipped',reason:'code_changed'};
- await refresh(page);await expect(page.locator('#runtime-status')).toHaveText('本轮已跳过');await expect(page.locator('#runtime-details')).toContainText('代码或模型配置变更');
+ await refresh(page);await expect(page.locator('#runtime-status')).toHaveText('当前运行待核验 · 官方启用状态请查看 Codex 任务');await expect(page.locator('#runtime-details')).toContainText('代码或模型配置变更');
  value.paused=true;await refresh(page);await expect(page.locator('#runtime-status')).toHaveText('本地暂停标记生效');
  await expect(page.locator('#runtime-details')).toContainText('回读时启用');await expect(page.locator('#runtime-panel')).toContainText('暂停不等于终止当前进程');
  const directory=`artifacts/${process.env.CHART_STAGE??'m14'}/ui`;await mkdir(directory,{recursive:true});
@@ -38,7 +38,7 @@ test('SYNTHETIC业务状态展示未配置、运行、失败、代码变更跳�
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
  value.paused=false;value.latest_attempt={...value.latest_attempt!,status:'completed',reason:null,forecast_id:forecastId,stage:'done'};
  value.last_success={cycle_id:value.latest_attempt.cycle_id,completed_at:at,forecast_id:forecastId};
- await refresh(page);await expect(page.locator('#runtime-status')).toHaveText('成功完成');
+ await refresh(page);await expect(page.locator('#runtime-status')).toHaveText('当前运行待核验 · 官方启用状态请查看 Codex 任务');
  value.release_integrity='changed';await refresh(page);await expect(page.locator('#runtime-status')).toContainText('固定发布版本已改变');
  await expect(page.locator('#runtime-details')).toContainText('最近业务尝试：成功完成');await expect(page.locator('#runtime-details')).toContainText('未伪造新的运行尝试');
  value.release_integrity='unknown';await refresh(page);await expect(page.locator('#runtime-details')).toContainText('固定发布版本核验未知');
@@ -51,7 +51,7 @@ test('SYNTHETIC业务状态读取失败和坏契约不会挡住预报索引或�
  await page.route('**/api/m1/runtime',route=>route.fulfill(bad?{status:422,json:{error:'SYNTHETIC_PRIVATE_PATH_AND_ERROR'}}:{json:runtime()}));
  await openExperiment(page);await expect(page.locator('#runtime-status')).toContainText('当前状态未知');await expect(page.locator('#load-status')).toContainText('暂无实验预测');
  await expect(page.locator('body')).not.toContainText('SYNTHETIC_PRIVATE_PATH_AND_ERROR');
- bad=false;await refresh(page);await expect(page.locator('#runtime-status')).toHaveText('运行中');
+ bad=false;await refresh(page);await expect(page.locator('#runtime-status')).toHaveText('当前运行待核验 · 官方启用状态请查看 Codex 任务');
  await page.unroute('**/api/m1/runtime');await page.route('**/api/m1/runtime',route=>route.fulfill({json:{...runtime(),raw_error:'SYNTHETIC_PRIVATE_PATH_AND_ERROR'}}));
  await refresh(page);await expect(page.locator('#runtime-status')).toContainText('当前状态未知');await expect(page.locator('body')).not.toContainText('SYNTHETIC_PRIVATE_PATH_AND_ERROR');
 });
@@ -64,7 +64,7 @@ test('SYNTHETIC最新业务失败保持真实原预报，分钟刷新仅GET运�
  const value=runtime();value.latest_attempt={...value.latest_attempt!,status:'failed',reason:'runtime_failed',completed_at:at};
  await page.route('**/api/m1/runtime',route=>route.fulfill({json:value}));
  await page.clock.install();await openExperiment(page);await expect(page.locator('#load-status')).toContainText('实验档案已校验');
- await expect(page.locator('#runtime-status')).toHaveText('运行失败');await expect(page.locator('#runtime-details')).toContainText('最近业务成功：');
+ await expect(page.locator('#runtime-status')).toHaveText('最近运行失败');await expect(page.locator('#runtime-details')).toContainText('最近业务成功：');
  const snapshot=()=>page.evaluate(()=>(window as any).chartTest.snapshot());const before=await snapshot();expect(before.runId).toBe(chosen);
  const originalPublished=await page.locator('#run-status').innerText();
  const requests:{url:string,method:string}[]=[];

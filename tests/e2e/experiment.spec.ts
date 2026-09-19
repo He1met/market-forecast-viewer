@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
+import { displayTime } from '../../src/forecast-presentation';
 import type { DisplayIndex, DisplayRun } from '../../src/m1-display';
 const snapshot=(page:Page)=>page.evaluate(()=>(window as any).chartTest.snapshot());
 const runId='m1-20260912T183644170Z-00000000-0000-4000-8000-000000000011';
@@ -29,14 +30,14 @@ async function chartResizeSettled(page:Page){
 test('SYNTHETIC实验run同图显示、单层阶段范围、概率依据与图形交互',async({page},info)=>{
  const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));await openExperiment(page);
  await expect(page.locator('.demo-badge')).toContainText('Codex 实验预报');await expect(page.locator('.grid-controls')).toBeHidden();await expect(page.locator('.demo-context')).toBeHidden();
- await expect(page.locator('#legend')).toContainText('未来24h');await expect(page.locator('#experiment-summary')).toContainText('未纳入事件风险');if((await snapshot(page)).evaluationStatus==='available'){await expect(page.locator('#evaluation-status')).toContainText('当次核对');await expect(page.locator('[data-window="h6"]')).toContainText('完整核对');}else await expect(page.locator('#evaluation-status')).toContainText('6h 已到期 · 尚未核对');
+ await expect(page.locator('#probabilities')).toContainText('未来24h');await expect(page.locator('#experiment-summary')).toContainText('未纳入事件风险');if((await snapshot(page)).evaluationStatus==='available'){await expect(page.locator('#evaluation-status')).toContainText('当次核对');await expect(page.locator('[data-window="h6"]')).toContainText('完整核对');}else await expect(page.locator('#evaluation-status')).toContainText('6h 已到期 · 尚未核对');
  expect((await snapshot(page)).pathCount).toBe(6);expect((await snapshot(page)).gridLineCount).toBe(0);expect((await snapshot(page)).historyCount).toBe(1344);
  const colored=()=>page.locator('#chart canvas').first().evaluate((canvas:HTMLCanvasElement)=>{const p=canvas.getContext('2d')!.getImageData(0,0,canvas.width,canvas.height).data;let n=0;for(let i=0;i<p.length;i+=4)if((p[i]===86&&p[i+1]===190)||(p[i]===235&&p[i+1]===130))n++;return n;});await expect.poll(colored).toBeGreaterThan(100);
  const box=(await page.locator('#chart').boundingBox())!;const before=await snapshot(page);await page.mouse.move(box.x+box.width*.6,box.y+box.height*.5);await page.mouse.wheel(0,-220);await expect.poll(async()=>{const s=await snapshot(page);return s.range.to-s.range.from;}).not.toBe(before.range.to-before.range.from);
  const from=(await snapshot(page)).range.from;await page.mouse.down();await page.mouse.move(box.x+box.width*.48,box.y+box.height*.5,{steps:10});await page.mouse.up();await expect.poll(async()=>(await snapshot(page)).range.from).not.toBe(from);
  const state=await snapshot(page),spacing=Math.abs(state.priceY2-state.priceY);await page.mouse.move(box.x+box.width-state.priceWidth/2,box.y+box.height*.45);await page.mouse.down();await page.mouse.move(box.x+box.width-state.priceWidth/2,box.y+box.height*.45+80,{steps:12});await page.mouse.up();await expect.poll(async()=>{const s=await snapshot(page);return Math.abs(s.priceY2-s.priceY);}).not.toBe(spacing);
  await stageAligned(page);await page.getByRole('button',{name:'重置视图'}).click();await stageAligned(page);await evidence(page,'experiment-default',info.project.name);
- await page.locator('#scenario-evidence summary').first().click();await expect(page.locator('#scenario-evidence')).toContainText('反对依据');await expect(page.locator('#scenario-evidence')).toContainText('失效条件');await expect(page.locator('#scenario-evidence')).toContainText('事件定义');
+ await page.locator('#forecast-basis>summary').click();await page.locator('#scenario-evidence summary').first().click();await expect(page.locator('#scenario-evidence')).toContainText('反对依据');await expect(page.locator('#scenario-evidence')).toContainText('失效条件');await expect(page.locator('#scenario-evidence')).toContainText('事件定义');
  await page.getByText('来源与预报版本',{exact:true}).click();await expect(page.locator('#experiment-summary')).toContainText('实际模型标识：unknown');await evidence(page,'experiment-evidence',info.project.name);
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);expect(errors).toEqual([]);
 });
@@ -58,7 +59,7 @@ test('坏索引、缺文件和跨run关联错误保留旧图并明确更新失�
   await page.getByRole('button',{name:'重载文件'}).click();await expect(page.locator('#load-status')).toContainText('加载失败');await expect(page.locator('#errors')).toContainText('不是本次最新成功');const after=await snapshot(page);expect(after.runId).toBe(before.runId);expect(after.forecastHash).toBe(before.forecastHash);expect(after.createdCharts).toBe(before.createdCharts);expect(after.activeCharts).toBe(1);
   await page.unroute(pattern);
  }
- await page.getByRole('button',{name:'读取最新索引'}).click();await expect(page.locator('#load-status')).toContainText('实验档案已校验');await expect(page.locator('#errors')).toBeHidden();
+ await page.getByRole('button',{name:'返回最新'}).click();await expect(page.locator('#load-status')).toContainText('实验档案已校验');await expect(page.locator('#errors')).toBeHidden();
 });
 
 test('synthetic历史run切换、最新失败与迟到状态，不执行HTML',async({page,request})=>{
@@ -96,5 +97,5 @@ test('synthetic过期预报仅供历史回看，原首次发布时间保留',asy
  const run:DisplayRun=shift(original);run.evaluation={status:'not_evaluated'};run.run_id=run.forecast.run_id='m1-20260910T183644170Z-00000000-0000-4000-8000-000000000003';run.forecast.summary='SYNTHETIC expired browser fixture';run.hashes={input_sha256:'0'.repeat(64),forecast_sha256:'1'.repeat(64)};
  const entry={run_id:run.run_id,created_at:'2026-09-10T18:36:44.170Z',published_at:run.forecast.published_at,status:'valid',reason:'forecast_expired'};
  await page.route('**/api/m1/index',route=>route.fulfill({json:{schema:'MFV:M1_INDEX:v1',checked_at:new Date().toISOString(),latest_run_id:null,latest_attempt:{run_id:entry.run_id,status:entry.status,created_at:entry.created_at,reason:entry.reason},runs:[entry]}}));await page.route('**/api/m1/runs/'+run.run_id,route=>route.fulfill({json:run}));
- await page.goto('/?test=1');await expect(page.locator('#load-status')).toContainText('已校验');await page.getByLabel('查看内容',{exact:true}).selectOption('experiment');await expect(page.locator('#run-status')).toContainText('预报已过期 · 历史回看');await expect(page.locator('#run-status')).toContainText(run.forecast.published_at);expect((await snapshot(page)).latestRunId).toBeNull();await expect(page.locator('#evaluation-status')).toContainText('24h 已到期 · 尚未核对');
+ await page.goto('/?test=1');await expect(page.locator('#load-status')).toContainText('已校验');await page.getByLabel('查看内容',{exact:true}).selectOption('experiment');await expect(page.locator('#run-status')).toContainText('预报已过期 · 历史回看');await expect(page.locator('#run-status')).toContainText(displayTime(run.forecast.published_at));expect((await snapshot(page)).latestRunId).toBeNull();await expect(page.locator('#evaluation-status')).toContainText('24h 已到期 · 尚未核对');
 });

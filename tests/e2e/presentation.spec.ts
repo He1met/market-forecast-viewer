@@ -1,0 +1,65 @@
+import { test, expect, type Page } from '@playwright/test';
+import { mkdir } from 'node:fs/promises';
+import type { DisplayIndex, DisplayRun } from '../../src/m1-display';
+import { displayTime } from '../../src/forecast-presentation';
+const snapshot=(page:Page)=>page.evaluate(()=>(window as any).chartTest.snapshot());
+test('B SYNTHETIC chart first, tied probabilities, keyboard, timezones and narrow viewport',async({page,request},info)=>{
+ const index:DisplayIndex=await (await request.get('/api/m1/index')).json();
+ const chosen=index.latest_run_id??index.runs.find(r=>r.status==='valid'||r.status==='late')!.run_id;
+ const run:DisplayRun=await (await request.get('/api/m1/runs/'+chosen)).json();
+ const probabilities=[.25,.20,.15,.15,.15,.10];
+ run.forecast.scenarios.forEach((s,i)=>s.probability_24h=probabilities[i]);delete run.forecast.calibration;
+ run.evaluation={status:'not_evaluated'};delete run.basis;
+ await page.route('**/api/m1/runs/'+chosen,route=>route.fulfill({json:run}));
+ await page.goto('/?test=1');await expect(page.locator('#load-status')).toContainText('已校验');
+ await page.getByLabel('查看内容',{exact:true}).selectOption('experiment');await expect(page.locator('#load-status')).toContainText('实验档案已校验');
+ for(const id of ['forecast-basis','results-learning','runtime-panel'])await expect(page.locator('#'+id)).not.toHaveAttribute('open','');
+ await page.locator('#results-learning>summary').click();await expect(page.locator('#history-learning-content')).toContainText('本次冻结基准样本 未知 个；反馈案例 未知 个');await page.locator('#results-learning>summary').click();
+ expect((await page.locator('#chart').boundingBox())!.y).toBeLessThan(380);
+ expect((await page.locator('#probabilities').boundingBox())!.x).toBeGreaterThan((await page.locator('#chart').boundingBox())!.x);
+ expect((await snapshot(page)).zone).toBe('Asia/Shanghai');
+ await expect(page.locator('#run-status')).toContainText(displayTime(run.forecast.published_at));
+ const original=await snapshot(page);expect(original.pathStyles.map((s:any)=>s.width)).toEqual([2,2,1,1,1,1]);
+ await expect(page.locator('.probability-row strong')).toHaveText(['25%','20%','15%','15%','15%','10%']);
+ const button=page.getByRole('button',{name:'突出前三（含并列）'});await button.focus();await page.keyboard.press('Enter');
+ await expect(button).toHaveAttribute('aria-pressed','true');await expect(page.locator('.probability-row[data-emphasized=true]')).toHaveCount(5);
+ expect((await snapshot(page)).visiblePaths).toHaveLength(6);
+ const before=await page.locator('#probabilities').innerText();
+ for(const hours of [6,12,24]){await page.getByLabel('未来展示窗口').selectOption(String(hours));expect(await page.locator('#probabilities').innerText()).toBe(before);expect((await snapshot(page)).forecastHash).toBe(original.forecastHash);}
+ await page.getByLabel('显示时区').selectOption('UTC');
+ expect((await snapshot(page)).zone).toBe('UTC');await expect(page.locator('#run-status')).toContainText(displayTime(run.forecast.published_at,'UTC'));
+ await expect(page.locator('#run option:checked')).toContainText(displayTime(run.forecast.published_at,'UTC'));
+ await page.getByLabel('显示时区').selectOption('Asia/Shanghai');
+ const directory=`artifacts/${process.env.CHART_STAGE??'b32'}`;await mkdir(directory,{recursive:true});await page.screenshot({path:`${directory}/b-first-screen-${info.project.name}.png`,fullPage:true});
+ await page.setViewportSize({width:390,height:844});await expect.poll(()=>page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+ const shell=await page.locator('.chart-shell').boundingBox();for(const control of await page.locator('#controls>*').all()){const box=(await control.boundingBox())!;expect(box.x).toBeGreaterThanOrEqual(shell!.x);expect(box.x+box.width).toBeLessThanOrEqual(shell!.x+shell!.width);}
+ const checkbox=page.getByRole('checkbox',{name:'终点向上',exact:true});await checkbox.focus();await page.keyboard.press('Space');expect((await snapshot(page)).visiblePaths).not.toContain('uptrend');
+ await page.locator('#runtime-panel>summary').click();await expect(page.locator('#runtime-details')).toContainText('外部推送未接入');
+ await page.screenshot({path:`${directory}/b-mobile-${info.project.name}.png`,fullPage:true});
+});
+
+test('B SYNTHETIC minute refresh, pinned history, returning page and failed index preserve view',async({page,request})=>{
+ const initial:DisplayIndex=await (await request.get('/api/m1/index')).json();
+ const oldId=initial.latest_run_id??initial.runs.find(r=>r.status==='valid')!.run_id;
+ const old:DisplayRun=await (await request.get('/api/m1/runs/'+oldId)).json();old.evaluation={status:'not_evaluated'};
+ const newer=structuredClone(old);newer.run_id=newer.forecast.run_id='m1-20260913T030000000Z-00000000-0000-4000-8000-000000000032';newer.hashes.forecast_sha256='e'.repeat(64);
+ const entry=(run:DisplayRun)=>({run_id:run.run_id,created_at:run.forecast.information_frozen_at,published_at:run.forecast.published_at,status:run.forecast.status,reason:null});
+ const a=entry(old),b=entry(newer);
+ let index:DisplayIndex={schema:'MFV:M1_INDEX:v1',checked_at:new Date().toISOString(),latest_run_id:oldId,latest_attempt:{run_id:a.run_id,created_at:a.created_at,status:a.status,reason:null},runs:[a]};
+ let fail=false,reads=0;
+ await page.route('**/api/m1/index',route=>{reads++;return route.fulfill(fail?{status:503}:{json:index});});
+ await page.route('**/api/m1/runs/'+oldId,route=>route.fulfill({json:old}));
+ await page.route('**/api/m1/runs/'+newer.run_id,route=>route.fulfill({json:newer}));
+ await page.clock.install({time:new Date(old.forecast.published_at)});
+ await page.goto('/?test=1');await expect(page.locator('#load-status')).toContainText('已校验');await page.getByLabel('查看内容',{exact:true}).selectOption('experiment');await expect(page.locator('#load-status')).toContainText('实验档案已校验');
+ await page.getByLabel('历史预报',{exact:true}).selectOption(oldId);await expect.poll(async()=>(await snapshot(page)).selectionMode).toBe('history_pinned');
+ await page.getByLabel('未来展示窗口').selectOption('6');await page.getByRole('checkbox',{name:'终点向上',exact:true}).uncheck();
+ const before=await snapshot(page),previousReads=reads;
+ index={...index,latest_run_id:newer.run_id,latest_attempt:{run_id:b.run_id,created_at:b.created_at,status:b.status,reason:null},runs:[b,a]};
+ await page.clock.fastForward(61000);await expect.poll(()=>reads).toBeGreaterThan(previousReads);await expect(page.locator('#new-forecast')).toBeVisible();
+ const pinned=await snapshot(page);expect(pinned.runId).toBe(oldId);expect(pinned.createdCharts).toBe(before.createdCharts);expect(pinned.range).toEqual(before.range);expect(pinned.visiblePaths).toEqual(before.visiblePaths);
+ await page.evaluate(()=>window.dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true})));await expect.poll(async()=>(await snapshot(page)).latestRunId).toBe(newer.run_id);expect((await snapshot(page)).runId).toBe(oldId);
+ fail=true;await page.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));await expect(page.locator('#load-status')).toContainText('加载失败');expect((await snapshot(page)).runId).toBe(oldId);
+ fail=false;await page.getByRole('button',{name:'返回最新',exact:true}).click();await expect.poll(async()=>(await snapshot(page)).runId).toBe(newer.run_id);await expect(page.locator('#new-forecast')).toBeHidden();expect((await snapshot(page)).selectionMode).toBe('follow_latest');
+ await page.clock.fastForward(61000);expect((await snapshot(page)).runId).toBe(newer.run_id);
+});
