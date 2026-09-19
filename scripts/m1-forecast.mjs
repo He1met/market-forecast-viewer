@@ -6,7 +6,7 @@ import { readFrozen, assertFrozenCode, prepareAttempt, completeAttempt, publishR
 import { prepareForecast } from './m1-input.mjs';
 
 const codeModeDisabledNotice = 'Code Mode is unavailable because code-mode host is disabled. Code mode will fail closed; enable `features.code_mode_host` and install `codex-code-mode-host`.';
-function disabledCodeModeContext(context) {
+function disabledCodeModeContextV1(context) {
   const args = context?.args;
   if (context?.kind !== 'installed_frozen_input' || context.cli_version !== 'codex-cli 0.154.0-alpha.6.2'
     || !Array.isArray(args) || !args.every(x => typeof x === 'string') || args[0] !== 'exec'
@@ -22,14 +22,32 @@ function disabledCodeModeContext(context) {
     || x === '-c' && !configs.has(args[i + 1]))) return false;
   return ['code_mode', 'code_mode_host'].every(feature => args.some((x, i) => x === '--disable' && args[i + 1] === feature));
 }
-export function auditCodexEvents(stream, context) {
+function disabledCodeModeContext(context) {
+  if (!['codex-cli 0.154.0-alpha.6.2', 'codex-cli 0.155.0-alpha.9'].includes(context?.cli_version)) return false;
+  const args = context?.args;
+  if (!disabledCodeModeContextV1({...context, cli_version:'codex-cli 0.154.0-alpha.6.2'})) return false;
+  const value = flag => args[args.indexOf(flag) + 1];
+  if (!['-C','--output-schema','--output-last-message'].every(flag => typeof value(flag) === 'string' && path.isAbsolute(value(flag)))) return false;
+  // Match the entire installed invocation; extra options cannot change the
+  // meaning of the disabled-feature diagnostic. Tested against modelArguments.
+  const expected = ['exec','--ignore-user-config','--skip-git-repo-check','--ephemeral','--sandbox','read-only','--json','--color','never','-C',value('-C'),'-m','gpt-6-astra',
+    '-c','model_reasoning_effort="medium"','-c','model_provider="openai"','-c','forced_login_method="chatgpt"','-c','web_search="disabled"','-c','project_doc_max_bytes=0',
+    ...['shell_tool','unified_exec','apps','plugins','computer_use','multi_agent','multi_agent_v2','hooks','chronicle','code_mode','code_mode_host','image_generation','view_image','remote_plugin','tool_suggest','artifact','sleep_tool'].flatMap(x => ['--disable',x]),
+    '--output-schema',value('--output-schema'),'--output-last-message',value('--output-last-message'),'-'];
+  return JSON.stringify(args) === JSON.stringify(expected);
+}
+// Replay only the semantics of frozen parser b280c281; do not reinterpret an
+// old failed receipt using the expanded CLI adapter below.
+export function auditCodexEventsV1(stream, context) { return auditEvents(stream, context, disabledCodeModeContextV1); }
+export function auditCodexEvents(stream, context) { return auditEvents(stream, context, disabledCodeModeContext); }
+function auditEvents(stream, context, acceptsContext) {
   const events = stream.trim().split('\n').filter(Boolean).map(line => {
     try { return JSON.parse(line); } catch { return { type: 'unparsed' }; }
   });
   const known = ['thread.started', 'turn.started', 'turn.completed', 'turn.failed', 'error',
     'item.started', 'item.updated', 'item.completed'];
   let turnStarted = false, startupWarnings = 0;
-  const controlledDisabled = disabledCodeModeContext(context), startupNotices = [];
+  const controlledDisabled = acceptsContext(context), startupNotices = [];
   const noticePrefix = 'Under-development features enabled: chronicle. Under-development features are incomplete and may behave unpredictably. To suppress this warning, set `suppress_unstable_features_warning = true` in ';
   const unexpected = events.filter((event, index) => {
     if (!event || typeof event !== 'object' || !known.includes(event.type)) return true;
