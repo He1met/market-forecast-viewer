@@ -27,14 +27,14 @@ test('snapshot retains two safe reads per file and bounded identity checks',asyn
 });
 
 test('snapshot checks identity after 250ms even below the file count threshold',async t=>{
- const f=await fixture(t,4);let time=0,checks=0,reads=0,checksAfterFirst=0;
+ const f=await fixture(t,8);let time=0,checks=0,reads=0,checksAfterFirst=0;
  t.mock.method(performance,'now',()=>time);
  const read=fs.readFile.bind(fs);t.mock.method(fs,'readFile',async(file,...args)=>{
-  if(++reads===2)assert.ok(checks>checksAfterFirst);
-  const b=await read(file,...args);if(reads===1){checksAfterFirst=checks;time+=251;}return b;
+  const n=++reads;if(n===5)assert.ok(checks>checksAfterFirst);
+  const b=await read(file,...args);if(n===1){checksAfterFirst=checks;time+=251;}return b;
  });
  await captureSnapshot({...f,mutex:{guard:async()=>{checks++;}}});
- assert.equal(reads,8);
+ assert.equal(reads,16);
 });
 
 test('snapshot detects changing source, owner loss and final slow IO without success',async t=>{
@@ -78,4 +78,39 @@ test('interrupted object writing leaves no success manifest or slot and can retr
  assert.equal(result.status,'completed');
  const again=await backup({...f,port:p,releaseId:'SYNTHETIC',slotKey:'day'});
  assert.equal(again.already_completed,true);assert.equal(again.manifest.id,result.manifest.id);
+});
+
+test('bounded reads drain all in-flight IO before an interrupted capture releases control',async t=>{
+ const f=await fixture(t,8),read=fs.readFile.bind(fs);let active=0,maximum=0,started=0,finished=0;
+ t.mock.method(fs,'readFile',async(file,...args)=>{
+  const n=++started;active++;maximum=Math.max(maximum,active);
+  try{await new Promise(r=>setTimeout(r,n===2?1:20));if(n===2)throw Error('SYNTHETIC_READ_INTERRUPTED');return await read(file,...args);}finally{active--;finished++;}
+ });
+ await assert.rejects(()=>captureSnapshot({...f,mutex:{guard:async()=>{}}}),/SYNTHETIC_READ_INTERRUPTED/);
+ assert.equal(maximum,4);assert.equal(active,0);assert.equal(started,4);assert.equal(finished,4);
+});
+
+test('large declared files reduce concurrency to keep batch reservation within 256MiB',async t=>{
+ const f=await fixture(t,5),stat=fs.stat.bind(fs),read=fs.readFile.bind(fs);let active=0,maximum=0;
+ // Synthetic metadata sizes exercise the allocation boundary without allocating
+ // gigabytes. The separate scale gate reads and restores real 208MB payloads.
+ t.mock.method(fs,'stat',async(file,...args)=>{const value=await stat(file,...args);if(String(file).includes('/data-source/'))value.size=path.basename(file)==='0000'?256*1024*1024:64*1024*1024;return value;});
+ t.mock.method(fs,'readFile',async(file,...args)=>{active++;maximum=Math.max(maximum,active);try{await new Promise(r=>setImmediate(r));return await read(file,...args);}finally{active--;}});
+ const result=await captureSnapshot({...f,mutex:{guard:async()=>{}}});
+ assert.equal(result.diagnostics.max_batch_reserved_bytes,256*1024*1024);assert.equal(result.diagnostics.max_inflight_files,4);assert.equal(maximum,4);assert.equal(active,0);assert.equal(result.diagnostics.verified_files,5);
+});
+
+test('growth beyond a reserved size fails before another batch or any publication',async t=>{
+ const f=await fixture(t,8),read=fs.readFile.bind(fs);let reads=0;
+ t.mock.method(fs,'readFile',async(file,...args)=>{reads++;return Buffer.concat([await read(file,...args),Buffer.from('GROWTH')]);});
+ await assert.rejects(()=>captureSnapshot({...f,mutex:{guard:async()=>{}}}),/BACKUP_SOURCE_CHANGED/);
+ assert.equal(reads,4);assert.deepEqual(await fs.readdir(f.target),[]);
+});
+
+test('deadline in a batch drains active reads and starts no following batch',async t=>{
+ const f=await fixture(t,8),read=fs.readFile.bind(fs);let reads=0,active=0,time=0;
+ t.mock.method(performance,'now',()=>time);
+ t.mock.method(fs,'readFile',async(file,...args)=>{reads++;active++;try{const b=await read(file,...args);time=200;return b;}finally{active--;}});
+ await assert.rejects(()=>captureSnapshot({...f,maxSnapshotMs:150,mutex:{guard:async()=>{}}}),/BACKUP_SNAPSHOT_DEADLINE/);
+ assert.equal(active,0);assert.equal(reads,4);assert.deepEqual(await fs.readdir(f.target),[]);
 });

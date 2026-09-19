@@ -45,25 +45,45 @@ async function backupLock(target,work) {
 // exceed that scheduling interval; budget checks after it reject the snapshot.
 export async function captureSnapshot({dataRoot,runtimeHome,mutex,maxSnapshotMs=15000,maxBytes=1024**3}) {
  const start=performance.now(),captured=[],sources=[];
- const diagnostics={phase:'scan',source_files:0,captured_files:0,verified_files:0,total_bytes:0,guard_checks:0,phase_ms:{}};
+ const diagnostics={phase:'scan',source_files:0,captured_files:0,verified_files:0,total_bytes:0,guard_checks:0,max_batch_reserved_bytes:0,max_inflight_files:0,phase_ms:{}};
  let phaseStart=start,lastGuard=start,sinceGuard=0;
  const budget=()=>check(performance.now()-start<maxSnapshotMs,'BACKUP_SNAPSHOT_DEADLINE');
- const guard=async(force=false)=>{budget();if(force||sinceGuard>=32||performance.now()-lastGuard>=250){await mutex.guard();diagnostics.guard_checks++;budget();lastGuard=performance.now();sinceGuard=0;}};
+ const guard=async(force=false)=>{budget();if(force||sinceGuard>=29||performance.now()-lastGuard>=250){await mutex.guard();diagnostics.guard_checks++;budget();lastGuard=performance.now();sinceGuard=0;}};
  const phase=name=>{const now=performance.now();diagnostics.phase_ms[diagnostics.phase]=now-phaseStart;diagnostics.phase=name;phaseStart=now;};
  try {
   await guard(true);
   for(const dir of roots)for(const name of await files(dataRoot,dir,budget,async()=>{await guard();sinceGuard++;}))sources.push({root:dataRoot,name,archive:name});
   if(runtimeHome)for(const name of await files(runtimeHome,'',budget,async()=>{await guard();sinceGuard++;}))sources.push({root:runtimeHome,name,archive:'runtime-snapshot/'+name});
   diagnostics.source_files=sources.length;await guard(true);phase('capture');
-  for(const source of sources){
-   await guard();const bytes=await readBytes(source.root,path.join(source.root,source.name),256*1024*1024);budget();
-   diagnostics.total_bytes+=bytes.length;check(diagnostics.total_bytes<=maxBytes,'BACKUP_SNAPSHOT_SIZE');
-   captured.push({...source,bytes,sha256:digest(bytes)});diagnostics.captured_files++;sinceGuard++;budget();
+  // At most four reads and 256 MiB of declared source bytes are in flight. Drain all of them on failure before the
+  // mutex can be released. Every file still validates its complete path twice.
+  const readBatch=async (list,startIndex)=>{
+   const batch=[];let reserved=0;
+   for(let i=startIndex;i<Math.min(list.length,startIndex+4);i++){
+    budget();const source=list[i],stat=await fs.stat(path.join(source.root,source.name));budget();
+    check(stat.isFile()&&stat.size<=256*1024*1024,'FILE_SIZE_OR_TYPE');
+    if(batch.length&&reserved+stat.size>256*1024*1024)break;
+    batch.push({source,limit:stat.size});reserved+=stat.size;
+   }
+   diagnostics.max_batch_reserved_bytes=Math.max(diagnostics.max_batch_reserved_bytes,reserved);
+   diagnostics.max_inflight_files=Math.max(diagnostics.max_inflight_files,batch.length);
+   const settled=await Promise.allSettled(batch.map(async ({source,limit})=>{
+    budget();const bytes=await readBytes(source.root,path.join(source.root,source.name),limit);budget();
+    check(bytes.length<=limit,'BACKUP_SOURCE_CHANGED');const sha256=digest(bytes);budget();return{...source,bytes,sha256};
+   }));
+   budget();const failed=settled.find(x=>x.status==='rejected');if(failed)throw failed.reason;
+   return settled.map(x=>x.value);
+  };
+  for(let i=0;i<sources.length;){
+   await guard();const batch=await readBatch(sources,i);
+   for(const source of batch){diagnostics.total_bytes+=source.bytes.length;check(diagnostics.total_bytes<=maxBytes,'BACKUP_SNAPSHOT_SIZE');captured.push(source);diagnostics.captured_files++;sinceGuard++;}
+   i+=batch.length;budget();
   }
   await guard(true);phase('verify');
-  for(const source of captured){
-   await guard();const bytes=await readBytes(source.root,path.join(source.root,source.name),256*1024*1024);budget();
-   check(digest(bytes)===source.sha256,'BACKUP_SOURCE_CHANGED');diagnostics.verified_files++;sinceGuard++;budget();
+  for(let i=0;i<captured.length;){
+   await guard();const batch=await readBatch(captured,i);
+   for(let j=0;j<batch.length;j++){check(batch[j].sha256===captured[i+j].sha256,'BACKUP_SOURCE_CHANGED');diagnostics.verified_files++;sinceGuard++;}
+   i+=batch.length;budget();
   }
   await guard(true);phase('completed');diagnostics.elapsed_ms=performance.now()-start;
   return{captured,size:diagnostics.total_bytes,diagnostics};
