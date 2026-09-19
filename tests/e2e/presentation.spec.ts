@@ -9,11 +9,12 @@ test('B SYNTHETIC chart first, tied probabilities, keyboard, timezones and narro
  const run:DisplayRun=await (await request.get('/api/m1/runs/'+chosen)).json();
  const probabilities=[.25,.20,.15,.15,.15,.10];
  run.forecast.scenarios.forEach((s,i)=>s.probability_24h=probabilities[i]);delete run.forecast.calibration;
- run.evaluation={status:'not_evaluated'};
+ run.evaluation={status:'not_evaluated'};delete run.basis;
  await page.route('**/api/m1/runs/'+chosen,route=>route.fulfill({json:run}));
  await page.goto('/?test=1');await expect(page.locator('#load-status')).toContainText('已校验');
  await page.getByLabel('查看内容',{exact:true}).selectOption('experiment');await expect(page.locator('#load-status')).toContainText('实验档案已校验');
  for(const id of ['forecast-basis','results-learning','runtime-panel'])await expect(page.locator('#'+id)).not.toHaveAttribute('open','');
+ await page.locator('#results-learning>summary').click();await expect(page.locator('#history-learning-content')).toContainText('本次冻结基准样本 未知 个；反馈案例 未知 个');await page.locator('#results-learning>summary').click();
  expect((await page.locator('#chart').boundingBox())!.y).toBeLessThan(380);
  expect((await page.locator('#probabilities').boundingBox())!.x).toBeGreaterThan((await page.locator('#chart').boundingBox())!.x);
  expect((await snapshot(page)).zone).toBe('Asia/Shanghai');

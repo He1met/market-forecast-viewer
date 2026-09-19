@@ -30,7 +30,7 @@ export function probabilityStyle(id: PathCategory, probability: number, subdued 
   return { color, symbol, width, opacity, stroke: `rgba(${rgb.join(',')},${opacity})` };
 }
 export function formatProbability(probability: number): string {
-  // The contract allows at most four decimals; display all meaningful precision.
+  // Readable percentage to eight decimal places; archive precision is unchanged.
   return `${Number((probability * 100).toFixed(8))}%`;
 }
 export function displayTime(value: string | number | null | undefined, zone = 'Asia/Shanghai'): string {
