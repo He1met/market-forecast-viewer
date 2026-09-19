@@ -39,7 +39,7 @@ export async function backupCycle({codeRoot,config,runtimeHome,releaseId,trigger
     result={...result,status:complete?'completed':'partial',...(complete?{}:{reason:'RESTORE_CHECK_INCOMPLETE'}),restore_check:restored};
    }
   }
- }catch(error){result={status:'failed',reason:error.message,...(savedBackup?{backup_status:'completed',manifest:savedBackup.manifest}:{})};}
+ }catch(error){result={status:'failed',reason:error.message,...(error.snapshot_diagnostics?{snapshot_diagnostics:error.snapshot_diagnostics}:{}),...(savedBackup?{backup_status:'completed',manifest:savedBackup.manifest}:{})};}
  const final={...observation,...result,backup_id:result.manifest?.id??null,completed_at:new Date(clock()).toISOString(),elapsed_ms:performance.now()-started};
  // A failed/busy summary write does not erase the independently recorded result.
  await writeOnce(dataRoot,path.join(folder,'result.json'),final);
