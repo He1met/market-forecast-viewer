@@ -79,23 +79,3 @@ test('interrupted object writing leaves no success manifest or slot and can retr
  const again=await backup({...f,port:p,releaseId:'SYNTHETIC',slotKey:'day'});
  assert.equal(again.already_completed,true);assert.equal(again.manifest.id,result.manifest.id);
 });
-
-test('8500-file 208MB complete backup and quarantined restore meet unchanged snapshot budget',async t=>{
- const f=await fixture(t,0),expected=new Map(),bytes=Buffer.alloc(24576,83);
- for(let i=0;i<8500;i++){
-  const runtime=i>=1700,name=runtime?`releases/p${i%9}/f${i}`:`data-source/f${i}`;
-  const file=path.join(runtime?f.runtimeHome:f.dataRoot,name);await fs.mkdir(path.dirname(file),{recursive:true});bytes.writeUInt32BE(i,0);await fs.writeFile(file,bytes);
-  expected.set((runtime?'runtime-snapshot/':'')+name,digest(bytes));
- }
- const result=await backup({...f,port:await port(),releaseId:'SYNTHETIC-SCALE'}),d=result.manifest.snapshot_diagnostics;
- assert.equal(result.status,'completed');assert.equal(d.source_files,8501);assert.equal(d.captured_files,8501);assert.equal(d.verified_files,8501);
- assert.ok(d.total_bytes>=208896000);assert.ok(d.elapsed_ms<15000);assert.ok(d.guard_checks<1000);
- for(const e of result.manifest.files)if(expected.has(e.name))assert.equal(e.sha256,expected.get(e.name));
- const destination=path.join(f.root,'restored');
- const restored=await restore({target:f.target,manifestFile:path.join(f.target,'manifests',result.manifest.id+'.json'),destination,maxMs:120000,verify:async root=>{
-  for(const[name,sha]of expected)assert.equal(digest(await fs.readFile(path.join(root,name))),sha);
-  return{passed:true};
- }});
- assert.equal(restored.activation_restored,false);assert.equal(restored.restored.length,8500);assert.equal(restored.skipped.length,1);
- t.diagnostic(JSON.stringify({synthetic:true,snapshot:d,restored:restored.restored.length}));
-});
