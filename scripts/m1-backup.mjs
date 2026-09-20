@@ -45,10 +45,13 @@ async function backupLock(target,work) {
 // exceed that scheduling interval; budget checks after it reject the snapshot.
 export async function captureSnapshot({dataRoot,runtimeHome,mutex,maxSnapshotMs=15000,maxBytes=1024**3}) {
  const start=performance.now(),captured=[],sources=[];
- const diagnostics={phase:'scan',source_files:0,captured_files:0,verified_files:0,total_bytes:0,guard_checks:0,max_batch_reserved_bytes:0,max_inflight_files:0,phase_ms:{}};
+ const diagnostics={phase:'scan',source_files:0,captured_files:0,verified_files:0,total_bytes:0,guard_checks:0,max_batch_reserved_bytes:0,max_inflight_files:0,phase_ms:{},work_ms:{guard:0,metadata:0,safe_read_hash:0},phase_work_ms:{}};
  let phaseStart=start,lastGuard=start,sinceGuard=0;
  const budget=()=>check(performance.now()-start<maxSnapshotMs,'BACKUP_SNAPSHOT_DEADLINE');
- const guard=async(force=false,upcoming=1)=>{budget();if(force||sinceGuard+upcoming>32||performance.now()-lastGuard>=250){await mutex.guard();diagnostics.guard_checks++;budget();lastGuard=performance.now();sinceGuard=0;}};
+ // Batch wall times do not sum per-file concurrent timings. Measurement stays
+ // inside the unchanged deadline; phase totals additionally include traversal/bookkeeping.
+ const measured=(kind,at)=>{const elapsed=performance.now()-at;diagnostics.work_ms[kind]+=elapsed;const bucket=diagnostics.phase_work_ms[diagnostics.phase]??={guard:0,metadata:0,safe_read_hash:0};bucket[kind]+=elapsed;};
+ const guard=async(force=false,upcoming=1)=>{budget();if(force||sinceGuard+upcoming>32||performance.now()-lastGuard>=250){const at=performance.now();try{await mutex.guard();diagnostics.guard_checks++;}finally{measured('guard',at);}budget();lastGuard=performance.now();sinceGuard=0;}};
  const phase=name=>{const now=performance.now();diagnostics.phase_ms[diagnostics.phase]=now-phaseStart;diagnostics.phase=name;phaseStart=now;};
  try {
   await guard(true);
@@ -61,21 +64,23 @@ export async function captureSnapshot({dataRoot,runtimeHome,mutex,maxSnapshotMs=
    const batch=[];let reserved=0;
    // Metadata is also bounded and drained before failure. No payload read starts
    // until every selected file has a validated size and the batch is reserved.
+   const metadataAt=performance.now();
    const sized=await Promise.allSettled(list.slice(startIndex,startIndex+8).map(async source=>{
     budget();const stat=await fs.stat(path.join(source.root,source.name));budget();
     check(stat.isFile()&&stat.size<=256*1024*1024,'FILE_SIZE_OR_TYPE');return{source,limit:stat.size};
    }));
-   budget();const sizeFailure=sized.find(x=>x.status==='rejected');if(sizeFailure)throw sizeFailure.reason;
+   measured('metadata',metadataAt);budget();const sizeFailure=sized.find(x=>x.status==='rejected');if(sizeFailure)throw sizeFailure.reason;
    for(const entry of sized){const item=entry.value;if(batch.length&&reserved+item.limit>256*1024*1024)break;batch.push(item);reserved+=item.limit;}
    // Metadata can cross the time-based identity boundary before payload IO.
    await guard(false,batch.length);
    diagnostics.max_batch_reserved_bytes=Math.max(diagnostics.max_batch_reserved_bytes,reserved);
    diagnostics.max_inflight_files=Math.max(diagnostics.max_inflight_files,batch.length);
+   const readAt=performance.now();
    const settled=await Promise.allSettled(batch.map(async ({source,limit})=>{
     budget();const bytes=await readBytes(source.root,path.join(source.root,source.name),limit);budget();
     check(bytes.length<=limit,'BACKUP_SOURCE_CHANGED');const sha256=digest(bytes);budget();return{...source,bytes,sha256};
    }));
-   budget();const failed=settled.find(x=>x.status==='rejected');if(failed)throw failed.reason;
+   measured('safe_read_hash',readAt);budget();const failed=settled.find(x=>x.status==='rejected');if(failed)throw failed.reason;
    return settled.map(x=>x.value);
   };
   for(let i=0;i<sources.length;){

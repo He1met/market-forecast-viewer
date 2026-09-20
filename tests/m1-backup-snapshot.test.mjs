@@ -22,6 +22,10 @@ test('snapshot retains two safe reads per file and bounded identity checks',asyn
  t.mock.method(fs,'readFile',async(file,...args)=>{reads.set(String(file),(reads.get(String(file))??0)+1);return read(file,...args);});
  const result=await captureSnapshot({...f,mutex:{guard:async()=>{checks++;}}});
  assert.equal(result.captured.length,70);assert.equal(result.diagnostics.verified_files,70);
+ assert.deepEqual(Object.keys(result.diagnostics.work_ms).sort(),['guard','metadata','safe_read_hash']);
+ for(const kind of Object.keys(result.diagnostics.work_ms))assert.ok(result.diagnostics.work_ms[kind]>=0);
+ assert.ok(Object.values(result.diagnostics.work_ms).reduce((a,b)=>a+b,0)<=result.diagnostics.elapsed_ms);
+ for(const kind of Object.keys(result.diagnostics.work_ms))assert.ok(Math.abs(Object.values(result.diagnostics.phase_work_ms).reduce((total,phase)=>total+phase[kind],0)-result.diagnostics.work_ms[kind])<.001);
  assert.ok(checks>=7&&checks<20,`guard calls ${checks}`);
  for(const e of result.captured){assert.equal(reads.get(path.join(e.root,e.name)),2);assert.equal(digest(e.bytes),e.sha256);}
 });
@@ -48,7 +52,7 @@ test('snapshot detects changing source, owner loss and final slow IO without suc
   });let calls=0;
   await assert.rejects(()=>captureSnapshot({...f,maxSnapshotMs:mode==='deadline'?150:15000,mutex:{guard:async()=>{if(mode==='owner'&&++calls===4)throw Error('MUTEX_OWNER_CHANGED');}}}),e=>{
    assert.match(e.message,new RegExp(mode==='source'?'BACKUP_SOURCE_CHANGED':mode==='owner'?'MUTEX_OWNER_CHANGED':'BACKUP_SNAPSHOT_DEADLINE'));
-   assert.equal(e.snapshot_diagnostics.phase,'verify');return true;
+   assert.equal(e.snapshot_diagnostics.phase,'verify');assert.ok(e.snapshot_diagnostics.work_ms.guard>=0);assert.ok(e.snapshot_diagnostics.phase_work_ms.verify.safe_read_hash>=0);return true;
   });
   assert.deepEqual(await fs.readdir(f.target),[]);
  });
