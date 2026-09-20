@@ -1,5 +1,7 @@
 # 市场天气 · Chart MVP
 
+[项目最新状态与验收清单](docs/PROJECT_STATUS.md) · [实际材料与下载索引](docs/PUBLIC_MATERIALS.md)
+
 Mac 本机图表：真实 OKX BTC-USDT-SWAP 15m 历史、固定 DEMO 多路径/分阶段区间及网格，以及已归档 Codex 实验预报。图表为官方 lightweight-charts 5.2.1，Vite + TypeScript + 原生页面。仅监听 `127.0.0.1`。
 
 M0 与 #9 已通过工程和用户五项视觉验收，#11–#13 已通过单次预报、展示与真实结果核对的工程审查。#14 增加固定版本的两小时业务运行，配置与自然运行验收分别见 [PROGRESS](docs/PROGRESS.md)。Codex 概率属于未来24h事件类别，主观且未经校准；能发布和显示不代表预测准确或盈利。没有收益评估或交易。
@@ -48,7 +50,7 @@ npx playwright install chromium --only-shell --no-remove
 
 Playwright固定1.63.0，匹配Chromium Headless Shell153.0.8010.12 / revision1243。安装命令保留其他缓存，不覆盖系统Chrome/Edge。无浏览器测试需求时启动页面只需npm ci。
 
-**公开Git仓库不包含价格文件、原始响应或价格截图。** 当前Mac数据在 `public/data/`，原始收据在 `artifacts/data-source/`，两者均被忽略。复制完整本地工作目录时保留这两个目录；从Git新克隆不会自动获得当前冻结快照。根据 [OKX API Agreement](https://www.okx.com/zh-hans/help/okx-api-agreement) 的数据使用限制，未经允许不要公开发布这些文件或截图。
+项目已获授权发布行情、模型完整输出、截图、日志和备份的安全副本。原档继续在本地保全、受gitignore保护；公开副本的覆盖范围、下载地址、校验和及脱敏/排除说明见[材料索引](docs/PUBLIC_MATERIALS.md)。脱敏备份不是可直接恢复原生产环境的备份包。页面接口仍只返回展示字段，公开归档由独立开发流程处理。
 
 在没有history文件、且明确需要新的一次性快照时，按顺序执行：
 

@@ -1,5 +1,7 @@
 # market-forecast-viewer：通用开发执行规则
 
+- 2026-09-21最新直接用户授权：本项目原始行情、模型完整输出、截图、日志、备份可以上传GitHub，真实转录：https://github.com/He1met/market-forecast-viewer/issues/15#issuecomment-5751861127 。由Issue40实现安全导出副本及统一状态入口，取代下文项目材料一概LOCAL_ONLY/不得上传的历史限制；本地原档、失败历史和冻结输入仍不可覆盖。凭证、私密安装/锁身份、账户私密内容及无关对话不读取/发布；文本、图片和嵌套归档分别检查，提供原件/发布件SHA、覆盖、脱敏及排除清单。大型内容放本仓Release附件，小型状态/索引随PR；不得只给摘要或本地路径声称已同步。沿现有开发任务有实质变化才增量同步，不在业务预测内上传或新建调度器。技术审查、CI、合并与交易/新阶段边界不变。
+
 - 2026-09-17最新直接用户授权：“批准，类似的都可以直接继续，不需要我批准”，由监督任务01a0a0fc-3285-75a3-ada4-effd7083bc8b转交；真实转录来源：https://github.com/He1met/market-forecast-viewer/issues/15#issuecomment-5708294712 。本项目已批准M1范围内、与本次同性质的维护修复，已独立审查且必要测试/CI/兼容检查通过的精确新包切换、相应经审不可覆盖维护记录写入、恢复已批准的同频率/模型业务，可自主继续，无需逐包或逐次索批。每次仍核精确身份、范围、实际独立审查、测试、备份恢复及回退条件，分别留存持续授权来源和本次执行决定；不伪造owner review，不批准任意封存，不忽略新失败或覆盖原档。新产品阶段、交易/账户资金、新付费服务、公网部署仍须相应明确授权。此条取代下文历史同类维护逐次精确用户确认及不得恢复业务的限制，不跳过技术门禁；用户后续暂停或撤回优先。
 
 - 2026-09-16最新直接授权：“合并，项目以后可以自行合并”，由监督任务01a0a0fc-3285-75a3-ada4-effd7083bc8b转交并独立留源。PR #7已审精确head获本次合并授权；今后本项目已批准范围内、必要测试和独立审查均通过的精确提交可正常squash合并，无需重复申请合并批准。此条取代下文历史不合并限制，不是GitHub owner review，不扩大产品阶段；同类维护正式包激活与恢复业务按上方2026-09-17持续授权，交易不在范围。新提交须更新相关验证及审查。
@@ -42,6 +44,8 @@ verify-release输入：schema=MFV:RELEASE_REVIEW:v1、issue_number、task_versio
 raw reviews保留GitHub body/id/html_url/user/updated_at或submitted_at/state/commit_id；review_id/action_id/Issue/报告/SHA从正文核实提取。按源URL+正文SHA+已核实review/action去重，编辑须重新核验；RECEIVED不等于FIXED。新任务无需改代码哈希。失败/陈旧快照重新sync并重审，不复用旧release。
 
 ## 验证、归档、回流
+
+- 每次安装包切换验收还须核对预测、巡检、备份任务提示中的唯一当前包/build身份，与current指针、封存manifest一致；只核ACTIVE和频率不足。历史维护段不得继续作为冲突的当前指令。2026-09-21遗漏与修正保留于Issue39评论5752269860；不补停下的slot，后续自然成功另证。
 
 - 测试覆盖实际风险，普通文档/流程改动不重跑全部图表；Canvas/交互修改用真实浏览器图形验证，不只DOM断言。依赖固定精确版本，用实际包类型和对应官方API；lightweight-charts v5用addSeries及公开primitive。
 - 测试与当前文件SHA一致后保存awaiting_handoff receipt；同锁显式git add该Issue文件，不用git add -A，不提交artifacts/行情。diff --check、核对远端基线，再commit/push/ls-remote。远端超前/失败不自动reset/rebase/强推。
