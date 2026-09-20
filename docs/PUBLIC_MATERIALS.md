@@ -2,7 +2,22 @@
 
 用户已[明确授权](https://github.com/He1met/market-forecast-viewer/issues/15#issuecomment-5751861127)将项目原始行情、模型完整输出、截图、日志和备份发布到本仓库。[Issue #40](https://github.com/He1met/market-forecast-viewer/issues/40)跟踪实际附件交付与独立检查。
 
-当前正在准备首次导出；**附件尚未上传，不能把本文视为归档完成**。完成后在此列出可下载附件、采集时间、文件数量、大小和SHA256。
+六个附件已于2026-09-21 05:08（上海时间）完成上传、全部下载及逐件SHA256/大小核对，总计1,087,127,379字节。[本次Release](https://github.com/He1met/market-forecast-viewer/releases/tag/materials-20260921-041032)已公开；附件交付与源码PR合并分别核验。核心、审计补充和导出源码均有独立审查，详见下方依据。
+
+| 附件 | 大小 | 用途 |
+| --- | ---: | --- |
+| [materials-01.zip](https://github.com/He1met/market-forecast-viewer/releases/download/materials-20260921-041032/materials-01.zip) | 478,148,048字节 | 核心资料第1卷，含总清单 |
+| [materials-02.zip](https://github.com/He1met/market-forecast-viewer/releases/download/materials-20260921-041032/materials-02.zip) | 475,079,072字节 | 核心资料第2卷 |
+| [materials-03.zip](https://github.com/He1met/market-forecast-viewer/releases/download/materials-20260921-041032/materials-03.zip) | 57,992,204字节 | 核心资料第3卷 |
+| [volumes.json](https://github.com/He1met/market-forecast-viewer/releases/download/materials-20260921-041032/volumes.json) | 2,649,115字节 | 三卷SHA和完整成员列表 |
+| [audit-evidence.zip](https://github.com/He1met/market-forecast-viewer/releases/download/materials-20260921-041032/audit-evidence.zip) | 73,254,761字节 | 独立核验、失败/通过测试日志、截图核查和单独的自然巡检补充 |
+| [audit-volumes.json](https://github.com/He1met/market-forecast-viewer/releases/download/materials-20260921-041032/audit-volumes.json) | 4,179字节 | 审计卷SHA和成员列表 |
+
+三个核心ZIP解压到同一新文件夹；审计ZIP解压到另一个文件夹。每组的`manifest.json`按原逻辑路径指向`objects/<export_sha256>`中的完整实际文件，可据此查找行情、模型全文、截图或日志；不能把审计组的manifest覆盖核心组。
+
+核心保留71,388条逻辑内容，去重为31,528对象、965,228,260字节；61个原压缩归档按成员展开。审计组47条材料、45个对象。原始源另有4,234条排除记录，覆盖726,188个原逻辑文件，清单在核心的`fixed-source-inventory.json`映射中；不是原档零排除。历史备份单独保留14份/86,881逻辑映射，其中2,925个允许对象可下载；被排除内容仍有原因和已知元数据。
+
+正式业务数据采集于上海时间03:39:11；允许来源的固定复制在04:09:25–04:10:32进行，前后完整枚举一致，每个允许文件逐SHA/大小核对。04:18自然巡检的started/result于04:21单独采集，属于审计补充。04:29备份入口前停止及04:31提示修正晚于这些材料边界，已在状态页公开说明，原材料留待后续增量；不因此重抽预测或暂停业务。
 
 ## 材料来源
 
@@ -35,4 +50,4 @@ python3 scripts/export-project-materials.py bundle prepared MANIFEST_SHA256 new-
 
 `bundle`只打包清单和被引用且校验通过的对象，不包含本地`pending`目录。分卷索引保存每卷SHA、大小和成员名。内部对象一致性不等于源覆盖：还必须由独立清点比对每个源路径、原SHA、大小、嵌套成员、备份逻辑映射和排除子树。仅本轮可变导出工作目录明确置于快照外；工具、测试和最终审查证据单独归档。
 
-本次图片核查覆盖687张独立PNG和196张嵌套录制JPEG，按SHA与OCR记录绑定；逐张联系表视觉检查确认项目页面、图表、状态面板或空白初始帧，未见其他应用或账户界面。未声称全分辨率逐字阅读小字；中文OCR存在低置信限制，识别无命中不单独构成安全保证。最终公开前还需独立审查。
+本次图片核查覆盖687张独立PNG和196张嵌套录制JPEG，按SHA与OCR记录绑定；逐张联系表视觉检查确认项目页面、图表、状态面板或空白初始帧，未见其他应用或账户界面。未声称全分辨率逐字阅读小字；中文OCR存在低置信限制，识别无命中不单独构成安全保证。独立审查已核对图片映射、审查记录并抽查原图，完整范围和限制见[核心审查](https://github.com/He1met/market-forecast-viewer/pull/41#issuecomment-5752468886)、[审计补充审查](https://github.com/He1met/market-forecast-viewer/pull/41#issuecomment-5752485748)及[精确源码审查](https://github.com/He1met/market-forecast-viewer/pull/41#pullrequestreview-5261705150)。未来新增材料仍须逐批核对，不沿用本批结论。

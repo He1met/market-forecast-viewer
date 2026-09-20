@@ -1,16 +1,16 @@
 # 项目状态快照
 
-部署采集于2026-09-21 03:29，调度修正核实于03:54，自然巡检补充截至04:18（上海时间）；此页是有时间标记的快照，不是实时监控。
+部署采集于2026-09-21 03:29，调度修正核实于03:54，自然巡检截至04:18，备份身份修正截至04:31（上海时间）；此页是有时间标记的快照，不是实时监控。
 
 | 项目 | 已核实状态 |
 | --- | --- |
-| GitHub main | `27ee30632a28230cbaa3bb5609841906763d3dc4`，PR #37已合并 |
+| GitHub业务实现基线 | `27ee30632a28230cbaa3bb5609841906763d3dc4`，PR #37已合并；资料工具/状态页另见[PR #41](https://github.com/He1met/market-forecast-viewer/pull/41)，不代表再次切换业务包 |
 | 正式安装包 | `f5a0cc24ff05883775e4c4768b08a29f320f7d98b42b764f5d4c9c7af817f21e`，来自上述main |
 | 页面服务 | 本机5178健康检查通过 |
 | 定时任务 | 四任务ACTIVE；03:49预测因旧包身份提示在入口前停止，03:54修正三个业务任务提示，模型/频率不变；04:18新包自然巡检通过，预测/备份仍待新成功 |
 | 本次修复 | CLI兼容、完整备份性能、未调用候选的准确展示 |
 | 完整恢复验证 | 切换前10802文件、追加判定记录后10813文件逐字校验通过 |
-| 当前新增开发 | Issue #40：实际材料公开与统一状态入口，尚未完成附件上传 |
+| 当前资料交付 | Issue #40：六个实际附件已于05:08全部下载校验通过并公开，共1,087,127,379字节；源码与文档的审查/合并记录见[PR #41](https://github.com/He1met/market-forecast-viewer/pull/41) |
 
 依据：[PR #37](https://github.com/He1met/market-forecast-viewer/pull/37)、[正式部署报告](https://github.com/He1met/market-forecast-viewer/issues/39#issuecomment-5752101950)、[独立复核与原调度恢复](https://github.com/He1met/market-forecast-viewer/issues/39#issuecomment-5752109550)。
 
@@ -27,11 +27,23 @@
 
 这些数值来自带时间的固定资料快照和单独的04:18巡检补充，后续新增运行材料按增量归档；不为更新展示而额外调用模型。
 
+04:29–04:30自然备份未进入业务入口，原因是shell未传任务身份。04:31监督侧补充了官方当前任务元数据唯一匹配规则；不从标题或旧记录猜身份，不改全局环境，未补跑该次备份。[停止及修正记录](https://github.com/He1met/market-forecast-viewer/issues/39#issuecomment-5752482635)。此项晚于固定材料采集边界，原证据进入后续增量。
+
 ## 仍待验证
+
+截至9月21日04:52，GitHub未关闭任务的下一步如下。Issue开放不等于代码尚未开发，也不等于都在等待用户批准。
+
+| 对应任务 | 下一步 | 负责方 |
+| --- | --- | --- |
+| [#12](https://github.com/He1met/market-forecast-viewer/issues/12)、[#13](https://github.com/He1met/market-forecast-viewer/issues/13)、[#32](https://github.com/He1met/market-forecast-viewer/issues/32) | 在当前页面操作历史切换、图表、概率、依据与结果；具体位置见[页面验收清单](CURRENT_ACCEPTANCE.md#页面可操作项目) | 用户反馈实际体验；发现问题由实施侧修复 |
+| [#34](https://github.com/He1met/market-forecast-viewer/issues/34) | 保留已通过的工程与维护恢复证据，继续核对自然备份及恢复 | 原频率任务运行，监督侧核验 |
+| [#36](https://github.com/He1met/market-forecast-viewer/issues/36)、[#38](https://github.com/He1met/market-forecast-viewer/issues/38)、[#39](https://github.com/He1met/market-forecast-viewer/issues/39) | PR #37修复已合并、部署；按实际部署和后续自然回执完成对应工程归档 | 监督侧核对并管理关闭，不要求用户重复做代码审查 |
+| [#40](https://github.com/He1met/market-forecast-viewer/issues/40) | 05:08附件交付完成；源码与文档最终交付以PR #41审查和合并记录为准，后续实质变化增量同步 | 实施侧交付，监督侧独立核验 |
+| [#10](https://github.com/He1met/market-forecast-viewer/issues/10)、[#15](https://github.com/He1met/market-forecast-viewer/issues/15) | 汇总页面、自然运行、通知和反馈比较各项验收 | 监督侧管理；用户负责页面体验和通知确认 |
 
 - 新包后续自然预测是否恢复成功；自然巡检已单项通过，不能代替预测恢复。
 - 自然备份、自然恢复、通知可见性，以及当前页面的用户操作验收。
 - F0/F1方法效果：原20个完整成熟配对、最多30个已结束机会的规则不变。登记、实际调用、完整成熟配对和最终决定分开统计，未调用不计成功配对。
-- 项目材料首次附件交付及远端校验，见[材料索引](PUBLIC_MATERIALS.md)。
+- 首次资料附件交付及远端校验已完成，见[材料索引](PUBLIC_MATERIALS.md)；后续新增运行证据按实质变化增量同步。
 
 工程部署成功不代表预测准确、盈利或可以交易。历史失败保留，没有补跑旧时段；旧721包不支持新增判定记录，不能带新记录恢复旧包业务。
