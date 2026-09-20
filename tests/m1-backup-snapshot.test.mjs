@@ -86,9 +86,10 @@ test('interrupted object writing leaves no success manifest or slot and can retr
 
 test('bounded reads drain all in-flight IO before an interrupted capture releases control',async t=>{
  const f=await fixture(t,16),read=fs.readFile.bind(fs);let active=0,maximum=0,started=0,finished=0;
+ let release;const allStarted=new Promise(resolve=>{release=resolve;});
  t.mock.method(fs,'readFile',async(file,...args)=>{
   const n=++started;active++;maximum=Math.max(maximum,active);
-  try{await new Promise(r=>setTimeout(r,n===2?1:20));if(n===2)throw Error('SYNTHETIC_READ_INTERRUPTED');return await read(file,...args);}finally{active--;finished++;}
+  try{if(started===8)release();await allStarted;await new Promise(r=>setTimeout(r,n===2?1:20));if(n===2)throw Error('SYNTHETIC_READ_INTERRUPTED');return await read(file,...args);}finally{active--;finished++;}
  });
  await assert.rejects(()=>captureSnapshot({...f,mutex:{guard:async()=>{}}}),/SYNTHETIC_READ_INTERRUPTED/);
  assert.equal(maximum,8);assert.equal(active,0);assert.equal(started,8);assert.equal(finished,8);

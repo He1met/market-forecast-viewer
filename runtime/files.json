@@ -29,6 +29,7 @@
     "scripts/m1-alerts.mjs",
     "scripts/m1-archive.mjs",
     "scripts/m1-backup.mjs",
+    "scripts/m1-candidate-proof.mjs",
     "scripts/m1-cases.mjs",
     "scripts/m1-compat.mjs",
     "scripts/m1-cycle.mjs",

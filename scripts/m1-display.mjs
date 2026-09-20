@@ -12,6 +12,7 @@ import { auditCodexEvents, auditCodexEventsV1, auditCodexEventsV2 } from './m1-f
 import { modelArguments } from './m1-model.mjs';
 import {readLegacyClosure} from './m1-closures.mjs';
 import {readPreparationFailure} from './m1-preparation.mjs';
+import {readCandidateProof} from './m1-candidate-proof.mjs';
 import {dataReference} from './m1-files.mjs';import{effectiveEvents}from'./m1-supplementary.mjs';
 
 const defaultRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -153,7 +154,10 @@ export function createDisplayReader({ root = defaultRoot, dataRoot = process.env
   }
   /** Two exhausted failures, or an independently reviewed historical closure.
    * A single completed attempt alone never proves run closure. */
+  const candidateProof=async id=>{runIdSchema.parse(id);if(!await exists(join(dataRoot,'m1-candidate-proofs',id)))return null;await preflight(id);return readCandidateProof({codeRoot:root,dataRoot,runId:id,runsRoot,
+    readOfficial:officialId=>createDisplayReader({root,dataRoot}).readScoringRun(officialId)});};
   async function readScoringRun(id) {
+    const candidate=await candidateProof(id);if(candidate)return candidate;
     const preparation=await readPreparationFailure({codeRoot:root,dataRoot,runId:id,runsRoot});
     if(preparation){check(preparation.status==='preparation_failed_not_scoreable','PREPARATION_FAILURE_UNPROVEN');return preparation;}
     const directory = await preflight(id);
@@ -259,6 +263,7 @@ export function createDisplayReader({ root = defaultRoot, dataRoot = process.env
       if (!(await exists(join(directory, 'manifest.json')))) return { ...state, status: 'incomplete', reason: 'generation_incomplete' };
       await preflight(id);
       await readFrozen(directory);
+      if(await candidateProof(id))return{...state,status:'skipped',reason:'candidate_not_invoked'};
       if (await exists(join(directory, 'publication'))) {
         const run = await readRun(id), forecast = run.forecast;
         return { ...state, published_at: forecast.published_at, status: forecast.status,

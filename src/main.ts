@@ -225,8 +225,8 @@ function updateProbabilityEmphasis(){
  for(const s of experiment.forecast.scenarios){const row=$('legend').querySelector<HTMLElement>(`[data-category="${s.id}"]`);if(!row)continue;const style=probabilityStyle(s.id,s.probability_24h,topOnly&&!top.has(s.id));const swatch=row.querySelector<HTMLElement>('.path-swatch')!;swatch.style.borderColor=style.stroke;swatch.style.borderTopWidth=style.width+'px';row.dataset.emphasized=String(!topOnly||top.has(s.id));}
 }
 $('emphasize-top').onclick=()=>{topOnly=!topOnly;updateProbabilityEmphasis();};
-const statusLabel={valid:'有效发布',late:'迟到发布',failed:'运行失败',incomplete:'尚未完成',invalid:'档案无效'};
-const reasonLabel:Record<string,string>={forecast_expired:'预报已过期',publication_late:'发布迟到',preparation_failed:'输入准备失败',generation_failed:'模型生成失败',validation_failed:'输出校验失败',generation_incomplete:'生成尚未完成',publication_missing:'尚无有效发布',archive_invalid:'档案校验失败'};
+const statusLabel={valid:'有效发布',late:'迟到发布',failed:'运行失败',incomplete:'尚未完成',invalid:'档案无效',skipped:'未执行'};
+const reasonLabel:Record<string,string>={forecast_expired:'预报已过期',publication_late:'发布迟到',preparation_failed:'输入准备失败',generation_failed:'模型生成失败',validation_failed:'输出校验失败',generation_incomplete:'生成尚未完成',publication_missing:'尚无有效发布',archive_invalid:'档案校验失败',candidate_not_invoked:'正式预测失败，影子候选未调用'};
 function indexOptions(index:DisplayIndex,chosen:string|undefined){
  select('run').replaceChildren();
  for(const r of index.runs){const o=document.createElement('option');o.value=r.run_id;o.textContent=`${timeLabel(r.published_at??r.created_at)} · ${statusLabel[r.status]}${r.reason?' · '+reasonLabel[r.reason]:''}`;select('run').append(o);}

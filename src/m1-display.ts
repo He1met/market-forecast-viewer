@@ -99,8 +99,8 @@ export const displayRunSchema = obj({
   }
 });
 export type DisplayRun = z.infer<typeof displayRunSchema>;
-const statusSchema = z.enum(['valid', 'late', 'failed', 'incomplete', 'invalid']);
-const reasonSchema = z.enum(['forecast_expired', 'publication_late', 'preparation_failed', 'generation_failed', 'validation_failed', 'generation_incomplete', 'publication_missing', 'archive_invalid']).nullable();
+const statusSchema = z.enum(['valid', 'late', 'failed', 'incomplete', 'invalid', 'skipped']);
+const reasonSchema = z.enum(['forecast_expired', 'publication_late', 'preparation_failed', 'generation_failed', 'validation_failed', 'generation_incomplete', 'publication_missing', 'archive_invalid', 'candidate_not_invoked']).nullable();
 const indexEntry = obj({ run_id: runIdSchema, created_at: iso, published_at: iso.nullable(), status: statusSchema, reason: reasonSchema });
 export const indexSchema = obj({
   summary:obj({total_runs:integer,verified_mature_runs:integer,valid_runs:integer,late_runs:integer,failed_runs:integer}).optional(),
@@ -119,6 +119,7 @@ export const indexSchema = obj({
       || (run.status === 'late' && run.reason !== 'publication_late')
       || (run.status === 'failed' && !['preparation_failed', 'generation_failed', 'validation_failed'].includes(run.reason ?? ''))
       || (run.status === 'incomplete' && !['generation_incomplete', 'publication_missing'].includes(run.reason ?? ''))
+      || (run.status === 'skipped' && run.reason !== 'candidate_not_invoked')
       || (run.status === 'invalid' && run.reason !== 'archive_invalid')) fail();
   });
   if(index.page_offset!==undefined)return;

@@ -41,7 +41,7 @@ export async function scoreOldForecasts({codeRoot,dataRoot,mutex,signal,deadline
  const ids=await reader.listRunIds();await guard();
  const batch=await scanOpsBatch({dataRoot,role:'production',cursorScope:'forecast-fallback',ids,guard,limit:2,shouldStop:()=>signal.aborted||performance.now()>=deadline,visit:async runId=>{
   await guard();const eligibility=await reader.readScoringRun(runId);await guard();
-  if(['terminal_failed_not_scoreable','historical_unpublished_closed_not_scoreable','preparation_failed_not_scoreable'].includes(eligibility.status))return{status:'ok',reason:eligibility.status};
+  if(['terminal_failed_not_scoreable','historical_unpublished_closed_not_scoreable','preparation_failed_not_scoreable','candidate_not_invoked_not_scoreable'].includes(eligibility.status))return{status:'ok',reason:eligibility.status};
   const run=eligibility.run;
   if(run.forecast.status!=='valid')return{status:'ok',reason:'ineligible_forecast'};
   if(run.evaluation.status==='available'&&run.evaluation.result.windows.h24.status==='mature')return{status:'ok',reason:'already_mature'};
@@ -77,7 +77,7 @@ export async function ops({codeRoot,dataRoot,port,releaseId,policy,trigger='manu
    const reader=readers[role],runsRoot=path.join(dataRoot,role==='production'?'forecast-runs':'m1-candidates'),store=createOutcomeStore({root:codeRoot,dataRoot,runsRoot});
    const batch=await scanOpsBatch({dataRoot,role,ids:await reader.listRunIds(),guard,limit:Math.min(8,16-processed),shouldStop:()=>performance.now()-start>85000,visit:async runId=>{
     const eligibility=await reader.readScoringRun(runId);await guard();
-    if(['terminal_failed_not_scoreable','historical_unpublished_closed_not_scoreable','preparation_failed_not_scoreable'].includes(eligibility.status))return{status:'ok',reason:eligibility.status};
+    if(['terminal_failed_not_scoreable','historical_unpublished_closed_not_scoreable','preparation_failed_not_scoreable','candidate_not_invoked_not_scoreable'].includes(eligibility.status))return{status:'ok',reason:eligibility.status};
     const run=eligibility.run;
     if(run.forecast.status!=='valid')return{status:'ok',reason:'ineligible_forecast'};
     if(run.evaluation.status==='available'&&run.evaluation.result.windows.h24.status==='mature'){
