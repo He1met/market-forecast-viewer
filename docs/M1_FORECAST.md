@@ -1,5 +1,7 @@
 # market-forecast-viewer：M1 最终实施方案
 
+2026-09-21公开材料策略更新：用户已明确授权项目行情、模型全文、截图、日志和备份的GitHub安全副本发布（[真实转录](https://github.com/He1met/market-forecast-viewer/issues/15#issuecomment-5751861127)、[Issue40](https://github.com/He1met/market-forecast-viewer/issues/40)）。本文历史禁止上传上述项目材料的条款由[材料公开约定](PUBLIC_MATERIALS.md)替代；原档仍冻结保全，业务入口只写本地，凭证和无关私密信息继续排除。本次不改变模型、研究门槛、页面只读接口或调度频率。
+
 **制定日期：2026年9月15日**
 **目标：持续发布真实预报、自动核对结果、以可验证的历史反馈改善后续预测。**
 **适用对象：本项目本地 Codex 实施会话。**
