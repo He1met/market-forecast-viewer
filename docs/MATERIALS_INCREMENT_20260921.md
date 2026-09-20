@@ -1,6 +1,6 @@
 # 2026-09-21 05:53 增量材料
 
-[Issue #42](https://github.com/He1met/market-forecast-viewer/issues/42)跟踪首次公开归档后的这一批真实增量。业务截止为上海时间2026-09-21 05:53:00；业务来源在06:05:39短暂一致性快照中采集，保留源修改时间，只纳入截止内版本。当前附件已准备并通过本地覆盖/完整性检查，**尚待精确附件独立审查、上传和远端下载核验**。
+[Issue #42](https://github.com/He1met/market-forecast-viewer/issues/42)跟踪首次公开归档后的这一批真实增量。业务截止为上海时间2026-09-21 05:53:00；业务来源在06:05:39短暂一致性快照中采集，保留源修改时间，只纳入截止内版本。两附件已通过[精确独立审查](https://github.com/He1met/market-forecast-viewer/pull/43#issuecomment-5753082324)，于06:22:44公开。全部实际下载后的SHA256/大小核对通过，总计11,040,261字节；06:23匿名访问Release及两下载链接全部HTTP200。源码文档最终交付见[PR #43](https://github.com/He1met/market-forecast-viewer/pull/43)。
 
 ## 本次事实
 
@@ -25,12 +25,12 @@
 
 ## 下载与读取
 
-本批将使用[独立增量Release](https://github.com/He1met/market-forecast-viewer/releases/tag/materials-increment-20260921-055300)，公开前链接可能暂不可用。
+本批使用已公开的[独立增量Release](https://github.com/He1met/market-forecast-viewer/releases/tag/materials-increment-20260921-055300)。
 
 | 附件 | 大小 | SHA256 |
 | --- | ---: | --- |
-| `materials-01.zip` | 11,022,812字节 | `c9422c83fb8c61c3e50cc93f16fc69259d5867df5eae811db939a266b063f476` |
-| `volumes.json` | 17,449字节 | `c2c38eee4de3de0ec22bd5d667e25f25913bcee7f6560b05fbbae0b7c72a3eb3` |
+| [materials-01.zip](https://github.com/He1met/market-forecast-viewer/releases/download/materials-increment-20260921-055300/materials-01.zip) | 11,022,812字节 | `c9422c83fb8c61c3e50cc93f16fc69259d5867df5eae811db939a266b063f476` |
+| [volumes.json](https://github.com/He1met/market-forecast-viewer/releases/download/materials-increment-20260921-055300/volumes.json) | 17,449字节 | `c2c38eee4de3de0ec22bd5d667e25f25913bcee7f6560b05fbbae0b7c72a3eb3` |
 
 增量manifest SHA256为`c83ae19a9cce62aec2312096411af6f212366a984cd348f1ceb5d5b773a2b1af`。请解压到一个新的文件夹，不覆盖[首次归档](https://github.com/He1met/market-forecast-viewer/releases/tag/materials-20260921-041032)的manifest。新内容按增量manifest指向objects；未变内容按业务/开发inventory里的`previous.base_manifest`、原逻辑路径和发布对象SHA，在首次核心或审计目录查找。变化文件保留两版映射，不能把这些净化材料用于生产恢复。
 
