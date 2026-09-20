@@ -23,7 +23,7 @@ test('spawned timeout and interruption keep actual-start evidence; spawn failure
  }
 });
 
-for(const cliVersion of ['codex-cli 0.154.0-alpha.6.2','codex-cli 0.155.0-alpha.9']) test(`installed generation preserves notice audit for ${cliVersion}`,async t=>{
+for(const cliVersion of ['codex-cli 0.154.0-alpha.6.2','codex-cli 0.155.0-alpha.9','codex-cli 0.155.0-alpha.9.2']) test(`installed generation preserves notice audit for ${cliVersion}`,async t=>{
  const{root,mutex,run}=await setup(t),r=await run(),bin=path.join(root,'bin');await fs.mkdir(bin);
  const input=JSON.parse(await fs.readFile(path.join(r.runDir,'input.json'))),notice='Code Mode is unavailable because code-mode host is disabled. Code mode will fail closed; enable `features.code_mode_host` and install `codex-code-mode-host`.';
  const raw={schema_version:'m1.0',method_version:METHOD_VERSION,prompt_version:PROMPT_VERSION,anchor_time:input.anchor_time,anchor_price:100,

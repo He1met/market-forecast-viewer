@@ -1,4 +1,5 @@
 import {buildPackage} from './m1-package-build.mjs';
+import {digest as proofDigest,encode as proofEncode} from './m1-files.mjs';
 import fs from'node:fs/promises';import path from'node:path';import assert from'node:assert/strict';import{execFileSync}from'node:child_process';import{requireEvidence}from'./evidence-context.mjs';import{verifyPackage}from'./m1-package.mjs';import{stageRelease,activate}from'./m1-admin.mjs';
 import {verifyTargetArchives,archiveSnapshot} from './m1-compatibility.mjs';
 import {verifyDeploymentHealth} from './m1-deploy-health.mjs';
@@ -29,6 +30,14 @@ const outcomeIds=await fs.readdir(path.join(compatData,'m1-outcomes')),revDir=pa
 const revisionFile=path.join(revDir,rev,'result.json'),originalRevision=await fs.readFile(revisionFile);
 await fs.writeFile(revisionFile,'{}');await assert.rejects(()=>verifyTargetArchives({packageRoot:target,dataRoot:compatData,releaseId:manifest.release_id}));assert.equal(await fs.readFile(revisionFile,'utf8'),'{}');await fs.writeFile(revisionFile,originalRevision);
 const unknown=path.join(compatData,'m1-outcomes','UNKNOWN');await fs.mkdir(unknown);await assert.rejects(()=>verifyTargetArchives({packageRoot:target,dataRoot:compatData,releaseId:manifest.release_id}));await fs.rmdir(unknown);
+// A sealed reader that does not declare candidate-proof support cannot be a rollback target.
+const proofRoot=path.join(compatData,'m1-candidate-proofs');await fs.mkdir(proofRoot);
+const supportFile=path.join(target,'config/m1-evidence-roots.json'),manifestFile=path.join(target,'manifest.json'),supportBefore=await fs.readFile(supportFile),manifestBefore=await fs.readFile(manifestFile);
+try{
+ const support=JSON.parse(supportBefore);support.roots=support.roots.filter(x=>x!=='m1-candidate-proofs');const b=proofEncode(support);await fs.writeFile(supportFile,b);
+ const oldReader=JSON.parse(manifestBefore);oldReader.files['config/m1-evidence-roots.json']={bytes:Buffer.byteLength(b),sha256:proofDigest(b)};oldReader.release_id=proofDigest(proofEncode({...oldReader,release_id:undefined}));await fs.writeFile(manifestFile,proofEncode(oldReader));
+ await assert.rejects(()=>verifyTargetArchives({packageRoot:target,dataRoot:compatData,releaseId:oldReader.release_id}),/TARGET_EVIDENCE_ROOT_UNSUPPORTED:m1-candidate-proofs/);
+}finally{await fs.writeFile(supportFile,supportBefore);await fs.writeFile(manifestFile,manifestBefore);await fs.rmdir(proofRoot);}
 assert.deepEqual(await archiveSnapshot(compatData),compatBefore);
 const healthSocket=net.createServer();await new Promise(r=>healthSocket.listen(0,'127.0.0.1',r));const healthPort=healthSocket.address().port;
 await assert.rejects(()=>verifyDeploymentHealth({packageRoot:target,dataRoot:compatData,releaseId:manifest.release_id,port:healthPort}),/EADDRINUSE/);

@@ -5,7 +5,7 @@ import {promisify} from 'node:util';
 import {check, digest, canonical, safePath, readBytes} from './m1-files.mjs';
 import {verifyPackage} from './m1-package.mjs';
 const execute = promisify(execFile);
-const roots = ['forecast-runs', 'm1-candidates', 'm1-outcomes', 'm1-cases', 'm1-learning', 'm1-closures','m1-closure-implementations','m1-preparation-proofs','m1-observations','m1-slots'];
+const roots = ['forecast-runs', 'm1-candidates', 'm1-outcomes', 'm1-cases', 'm1-learning', 'm1-closures','m1-closure-implementations','m1-preparation-proofs','m1-observations','m1-slots','m1-experiments','m1-candidate-proofs'];
 // Called under the business mutex. Hash every archive byte, including historical
 // revisions and controls; never reuse an earlier compatibility receipt.
 export async function archiveSnapshot(dataRoot) {
@@ -34,7 +34,9 @@ const {listClosureIds,auditClosureImplementations}=closureModule;
 const preparationModule=await fs.stat('./scripts/m1-preparation.mjs').then(()=>import('./scripts/m1-preparation.mjs')).catch(e=>{if(e.code==='ENOENT')return null;throw e;});
 const dataRoot=process.env.MFV_DATA_ROOT, root=process.cwd();
 const names=async p=>{try{return await fs.readdir(p);}catch(e){if(e.code==='ENOENT')return [];throw e;}};
-let runs=0,captures=0,revisions=0,cases=0,failed_runs=0,closures=0;const known=new Set();
+const candidateModule=await fs.stat('./scripts/m1-candidate-proof.mjs').then(()=>import('./scripts/m1-candidate-proof.mjs')).catch(e=>{if(e.code==='ENOENT')return null;throw e;});
+if(candidateModule)for(const id of await candidateModule.listCandidateProofIds(dataRoot)){const result=await createDisplayReader({root,dataRoot,runsRoot:path.join(dataRoot,'m1-candidates')}).readScoringRun(id);if(result.status!=='candidate_not_invoked_not_scoreable')throw Error('CANDIDATE_PROOF_COMPATIBILITY_INVALID');}
+let runs=0,captures=0,revisions=0,cases=0,failed_runs=0,closures=0,not_invoked_candidates=0;const known=new Set();
 if(auditClosureImplementations)await auditClosureImplementations(dataRoot);
 if(preparationModule){
  const proofs=await preparationModule.auditPreparationProofs(dataRoot);
@@ -55,6 +57,7 @@ for(const name of ['forecast-runs','m1-candidates']){
   try{run=await reader.readRun(id,{includeEvaluation:false});}catch(error){
    const index=await reader.readIndex(),state=index.runs.find(x=>x.run_id===id);
    const contents=await names(path.join(runsRoot,id));
+   if(state?.status==='skipped'&&(await reader.readScoringRun(id)).status==='candidate_not_invoked_not_scoreable'){not_invoked_candidates++;continue;}
    if(state?.status!=='failed'||contents.includes('publication')||(await names(path.join(dataRoot,'m1-outcomes',id))).length)throw error;
    failed_runs++;continue;
   }runs++;
@@ -65,14 +68,14 @@ for(const name of ['forecast-runs','m1-candidates']){
 }
 for(const id of await names(path.join(dataRoot,'m1-outcomes')))if(!known.has(id))throw Error('ORPHAN_OUTCOME');
 for(const id of await names(path.join(dataRoot,'m1-cases'))){await caseStore({codeRoot:root,dataRoot}).read(id);cases++;}
-console.log(JSON.stringify({status:'compatible',runs,captures,revisions,cases,failed_runs,closures}));
+console.log(JSON.stringify({status:'compatible',runs,captures,revisions,cases,failed_runs,closures,not_invoked_candidates}));
 `;
 export async function verifyTargetArchives({packageRoot, dataRoot, releaseId}) {
  const manifest = await verifyPackage(packageRoot);
  check(manifest.release_id === releaseId, 'COMPATIBILITY_TARGET_MISMATCH');
  // Old readers ignoring sidecars do not prove that their backup covers them.
  // Block rollback to such a package; never remove the new evidence to proceed.
- for(const name of ['m1-closure-implementations','m1-preparation-proofs']){
+ for(const name of ['m1-closure-implementations','m1-preparation-proofs','m1-candidate-proofs']){
   let present=false;try{await safePath(dataRoot,path.join(dataRoot,name));present=true;}catch(e){if(e.code!=='ENOENT')throw e;}
   if(present){
    const support='config/m1-evidence-roots.json';check(manifest.files[support],'TARGET_EVIDENCE_ROOT_UNSUPPORTED:'+name);

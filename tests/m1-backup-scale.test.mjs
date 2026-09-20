@@ -26,7 +26,7 @@ test('8500-file 208MB complete backup and quarantined restore meet unchanged sna
  }
  let result;try{result=await backup({...f,port:await port(),releaseId:'SYNTHETIC-SCALE'});}catch(error){t.diagnostic(JSON.stringify({synthetic:true,failure:error.message,snapshot:error.snapshot_diagnostics}));throw error;}const d=result.manifest.snapshot_diagnostics;
  assert.equal(result.status,'completed');assert.equal(d.source_files,8501);assert.equal(d.captured_files,8501);assert.equal(d.verified_files,8501);
- assert.ok(d.total_bytes>=208896000);assert.ok(d.elapsed_ms<15000);assert.ok(d.guard_checks<1000);assert.equal(d.max_inflight_files,4);assert.ok(d.max_batch_reserved_bytes<=256*1024*1024);
+ assert.ok(d.total_bytes>=208896000);assert.ok(d.elapsed_ms<15000);assert.ok(d.guard_checks<1000);assert.equal(d.max_inflight_files,8);assert.ok(d.max_batch_reserved_bytes<=256*1024*1024);
  for(const e of result.manifest.files)if(expected.has(e.name))assert.equal(e.sha256,expected.get(e.name));
  const destination=path.join(f.root,'restored');
  const restored=await restore({target:f.target,manifestFile:path.join(f.target,'manifests',result.manifest.id+'.json'),destination,maxMs:120000,verify:async root=>{

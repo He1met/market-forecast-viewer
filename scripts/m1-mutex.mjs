@@ -2,6 +2,35 @@ import net from 'node:net';import fs from 'node:fs/promises';import path from 'n
 import{atomic,writeOnce,readJson,exists,check}from'./m1-files.mjs';
 export function groupAlive(pgid){check(Number.isSafeInteger(pgid)&&pgid>1,'PROCESS_GROUP_INVALID');try{process.kill(-pgid,0);return true;}catch(e){return e.code!=='ESRCH';}}
 export function processIdentity(pid){try{return execFileSync('ps',['-p',String(pid),'-o','lstart=,pgid=,comm='],{encoding:'utf8'}).trim()||null;}catch{return null;}}
+// Linux self guards read kernel identity afresh, without spawning ps per batch.
+// Cross-process identity and orphan recovery deliberately keep processIdentity.
+export function parseSelfProcStat(text,pid){
+ check(typeof text==='string'&&Buffer.byteLength(text)<=4096,'MUTEX_PROC_STAT_INVALID');
+ const match=/^([1-9]\d*) \(([\s\S]+)\) ([A-Za-z]) ([^\n]+)\n?$/.exec(text);
+ check(match&&match[1]===String(pid)&&'RSDTtIWKP'.includes(match[3]),'MUTEX_PROC_STAT_INVALID');
+ const fields=match[4].trim().split(/\s+/);
+ check(fields.length>=49&&fields.length<=64&&fields.every(x=>/^-?(?:0|[1-9]\d*)$/.test(x))&&/^[1-9]\d*$/.test(fields[1])&&/^[1-9]\d*$/.test(fields[18]),'MUTEX_PROC_STAT_INVALID');
+ return{pid:match[1],pgrp:BigInt(fields[1]).toString(),start_ticks:BigInt(fields[18]).toString(),comm:match[2]};
+}
+export async function linuxSelfIdentity(pid){
+ const base='/proc/'+pid,results=await Promise.allSettled([fs.readFile(base+'/stat','utf8'),fs.readlink(base+'/exe'),fs.stat(base+'/exe',{bigint:true})]);
+ const identity=results[0].status==='fulfilled'?parseSelfProcStat(results[0].value,pid):null;
+ if(results[1].status==='fulfilled')check(typeof results[1].value==='string'&&path.isAbsolute(results[1].value)&&results[1].value.length<=4096,'MUTEX_PROC_EXE_INVALID');
+ if(results[2].status==='fulfilled')check(results[2].value.isFile(),'MUTEX_PROC_EXE_INVALID');
+ const failed=results.find(x=>x.status==='rejected');if(failed)throw failed.reason;
+ const exe=results[1].value,stat=results[2].value;
+ return{...identity,exe,exe_device:stat.dev.toString(),exe_inode:stat.ino.toString()};
+}
+// Dependency injection is for isolated tests. businessMutex exposes no switch;
+// its platform and readers always come from this process and the OS.
+export async function selfIdentityGuard(identity,{platform=process.platform,pid=process.pid,readProc=linuxSelfIdentity,readPs=processIdentity}={}){
+ check(typeof identity==='string'&&identity.trim().length>0,'PROCESS_IDENTITY_UNAVAILABLE');
+ let baseline=null;
+ if(platform==='linux')try{baseline=await readProc(pid);check(baseline&&typeof baseline==='object','MUTEX_PROC_STAT_INVALID');}catch(error){if(!['ENOENT','ENOTDIR','ENOSYS','EACCES','EPERM'].includes(error.code))throw error;}
+ check(readPs(pid)===identity,'MUTEX_SELF_IDENTITY_CHANGED');
+ if(baseline){const expected=JSON.stringify(baseline);return{kind:'linux-proc',check:async()=>{check(JSON.stringify(await readProc(pid))===expected,'MUTEX_SELF_IDENTITY_CHANGED');}};}
+ return{kind:'ps',check:async()=>{check(readPs(pid)===identity,'MUTEX_SELF_IDENTITY_CHANGED');}};
+}
 export async function businessMutex({dataRoot,port,releaseId,task='forecast'}){
  const token=randomUUID(),dir=path.join(dataRoot,'m1-control');await fs.mkdir(dir,{recursive:true});const ownerFile=path.join(dir,'owner.json');
  const server=net.createServer(socket=>{socket.end(JSON.stringify({schema:'MFV:MUTEX:v1',token,data_root:dataRoot,release_id:releaseId,pid:process.pid})+'\n');});
@@ -20,9 +49,10 @@ export async function businessMutex({dataRoot,port,releaseId,task='forecast'}){
   }
   await writeOnce(dataRoot,path.join(dir,'recoveries',randomUUID()+'.json'),{at:new Date().toISOString(),previous,action:'terminated_proven_orphan',success:false});
  }
- let owner={schema:'MFV:MUTEX_OWNER:v1',token,pid:process.pid,identity:processIdentity(process.pid),host:hostname(),data_root:dataRoot,release_id:releaseId,task,started_at:new Date().toISOString(),child:null};await atomic(dataRoot,ownerFile,owner);
+ const identity=processIdentity(process.pid),self=await selfIdentityGuard(identity);
+ let owner={schema:'MFV:MUTEX_OWNER:v1',token,pid:process.pid,identity,host:hostname(),data_root:dataRoot,release_id:releaseId,task,started_at:new Date().toISOString(),child:null};await atomic(dataRoot,ownerFile,owner);
  let closed=false;
- const guard=async()=>{check(!closed&&server.listening,'MUTEX_NOT_HELD');const found=await readJson(dataRoot,ownerFile);check(found.token===token&&found.identity===processIdentity(process.pid),'MUTEX_OWNER_CHANGED');};
+ const guard=async()=>{check(!closed&&server.listening,'MUTEX_NOT_HELD');const found=await readJson(dataRoot,ownerFile);check(found.token===token&&found.pid===process.pid&&found.identity===identity,'MUTEX_OWNER_CHANGED');await self.check();check(!closed&&server.listening,'MUTEX_NOT_HELD');};
  const setChild=async child=>{await guard();owner={...owner,child};await atomic(dataRoot,ownerFile,owner);};
  const close=async()=>{await guard();if(owner.child&&groupAlive(owner.child.pid))throw Error('CHILD_STILL_RUNNING');await atomic(dataRoot,ownerFile,{...owner,completed_at:new Date().toISOString(),child:null});closed=true;await new Promise(r=>server.close(r));};
  return{status:'ACQUIRED',token,guard,setChild,close};

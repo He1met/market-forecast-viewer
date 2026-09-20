@@ -3,7 +3,7 @@ import path from 'node:path';
 import {randomUUID} from 'node:crypto';
 import {digest,readBytes,readJson,writeOnce,atomic,check,safePath,exists,within} from './m1-files.mjs';
 import {businessMutex} from './m1-mutex.mjs';
-const roots=['forecast-runs','data-source','m1-candidates','m1-outcomes','m1-runtime','m1-control','m1-slots','m1-observations','m1-task-status','m1-cases','m1-learning','m1-experiments','m1-derivatives','m1-calendar','m1-projections','m1-closures','m1-closure-implementations','m1-preparation-proofs'];
+const roots=['forecast-runs','data-source','m1-candidates','m1-outcomes','m1-runtime','m1-control','m1-slots','m1-observations','m1-task-status','m1-cases','m1-learning','m1-experiments','m1-derivatives','m1-calendar','m1-projections','m1-closures','m1-closure-implementations','m1-preparation-proofs','m1-candidate-proofs'];
 // stat.dev identifies a filesystem, not a physical disk or independent failure
 // domain (two APFS volumes on one disk can have different device numbers).
 export function backupFaultDomain(sourceDevice,targetDevice){return{
@@ -45,43 +45,52 @@ async function backupLock(target,work) {
 // exceed that scheduling interval; budget checks after it reject the snapshot.
 export async function captureSnapshot({dataRoot,runtimeHome,mutex,maxSnapshotMs=15000,maxBytes=1024**3}) {
  const start=performance.now(),captured=[],sources=[];
- const diagnostics={phase:'scan',source_files:0,captured_files:0,verified_files:0,total_bytes:0,guard_checks:0,max_batch_reserved_bytes:0,max_inflight_files:0,phase_ms:{}};
+ const diagnostics={phase:'scan',source_files:0,captured_files:0,verified_files:0,total_bytes:0,guard_checks:0,max_batch_reserved_bytes:0,max_inflight_files:0,phase_ms:{},work_ms:{guard:0,metadata:0,safe_read_hash:0},phase_work_ms:{}};
  let phaseStart=start,lastGuard=start,sinceGuard=0;
  const budget=()=>check(performance.now()-start<maxSnapshotMs,'BACKUP_SNAPSHOT_DEADLINE');
- const guard=async(force=false)=>{budget();if(force||sinceGuard>=29||performance.now()-lastGuard>=250){await mutex.guard();diagnostics.guard_checks++;budget();lastGuard=performance.now();sinceGuard=0;}};
+ // Batch wall times do not sum per-file concurrent timings. Measurement stays
+ // inside the unchanged deadline; phase totals additionally include traversal/bookkeeping.
+ const measured=(kind,at)=>{const elapsed=performance.now()-at;diagnostics.work_ms[kind]+=elapsed;const bucket=diagnostics.phase_work_ms[diagnostics.phase]??={guard:0,metadata:0,safe_read_hash:0};bucket[kind]+=elapsed;};
+ const guard=async(force=false,upcoming=1)=>{budget();if(force||sinceGuard+upcoming>32||performance.now()-lastGuard>=250){const at=performance.now();try{await mutex.guard();diagnostics.guard_checks++;}finally{measured('guard',at);}budget();lastGuard=performance.now();sinceGuard=0;}};
  const phase=name=>{const now=performance.now();diagnostics.phase_ms[diagnostics.phase]=now-phaseStart;diagnostics.phase=name;phaseStart=now;};
  try {
   await guard(true);
   for(const dir of roots)for(const name of await files(dataRoot,dir,budget,async()=>{await guard();sinceGuard++;}))sources.push({root:dataRoot,name,archive:name});
   if(runtimeHome)for(const name of await files(runtimeHome,'',budget,async()=>{await guard();sinceGuard++;}))sources.push({root:runtimeHome,name,archive:'runtime-snapshot/'+name});
   diagnostics.source_files=sources.length;await guard(true);phase('capture');
-  // At most four reads and 256 MiB of declared source bytes are in flight. Drain all of them on failure before the
+  // At most eight metadata requests or reads and 256 MiB of declared source bytes are in flight. Drain all of them on failure before the
   // mutex can be released. Every file still validates its complete path twice.
   const readBatch=async (list,startIndex)=>{
    const batch=[];let reserved=0;
-   for(let i=startIndex;i<Math.min(list.length,startIndex+4);i++){
-    budget();const source=list[i],stat=await fs.stat(path.join(source.root,source.name));budget();
-    check(stat.isFile()&&stat.size<=256*1024*1024,'FILE_SIZE_OR_TYPE');
-    if(batch.length&&reserved+stat.size>256*1024*1024)break;
-    batch.push({source,limit:stat.size});reserved+=stat.size;
-   }
+   // Metadata is also bounded and drained before failure. No payload read starts
+   // until every selected file has a validated size and the batch is reserved.
+   const metadataAt=performance.now();
+   const sized=await Promise.allSettled(list.slice(startIndex,startIndex+8).map(async source=>{
+    budget();const stat=await fs.stat(path.join(source.root,source.name));budget();
+    check(stat.isFile()&&stat.size<=256*1024*1024,'FILE_SIZE_OR_TYPE');return{source,limit:stat.size};
+   }));
+   measured('metadata',metadataAt);budget();const sizeFailure=sized.find(x=>x.status==='rejected');if(sizeFailure)throw sizeFailure.reason;
+   for(const entry of sized){const item=entry.value;if(batch.length&&reserved+item.limit>256*1024*1024)break;batch.push(item);reserved+=item.limit;}
+   // Metadata can cross the time-based identity boundary before payload IO.
+   await guard(false,batch.length);
    diagnostics.max_batch_reserved_bytes=Math.max(diagnostics.max_batch_reserved_bytes,reserved);
    diagnostics.max_inflight_files=Math.max(diagnostics.max_inflight_files,batch.length);
+   const readAt=performance.now();
    const settled=await Promise.allSettled(batch.map(async ({source,limit})=>{
     budget();const bytes=await readBytes(source.root,path.join(source.root,source.name),limit);budget();
     check(bytes.length<=limit,'BACKUP_SOURCE_CHANGED');const sha256=digest(bytes);budget();return{...source,bytes,sha256};
    }));
-   budget();const failed=settled.find(x=>x.status==='rejected');if(failed)throw failed.reason;
+   measured('safe_read_hash',readAt);budget();const failed=settled.find(x=>x.status==='rejected');if(failed)throw failed.reason;
    return settled.map(x=>x.value);
   };
   for(let i=0;i<sources.length;){
-   await guard();const batch=await readBatch(sources,i);
+   await guard(false,Math.min(8,sources.length-i));const batch=await readBatch(sources,i);
    for(const source of batch){diagnostics.total_bytes+=source.bytes.length;check(diagnostics.total_bytes<=maxBytes,'BACKUP_SNAPSHOT_SIZE');captured.push(source);diagnostics.captured_files++;sinceGuard++;}
    i+=batch.length;budget();
   }
   await guard(true);phase('verify');
   for(let i=0;i<captured.length;){
-   await guard();const batch=await readBatch(captured,i);
+   await guard(false,Math.min(8,captured.length-i));const batch=await readBatch(captured,i);
    for(let j=0;j<batch.length;j++){check(batch[j].sha256===captured[i+j].sha256,'BACKUP_SOURCE_CHANGED');diagnostics.verified_files++;sinceGuard++;}
    i+=batch.length;budget();
   }

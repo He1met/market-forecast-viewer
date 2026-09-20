@@ -99,3 +99,14 @@ test('synthetic过期预报仅供历史回看，原首次发布时间保留',asy
  await page.route('**/api/m1/index',route=>route.fulfill({json:{schema:'MFV:M1_INDEX:v1',checked_at:new Date().toISOString(),latest_run_id:null,latest_attempt:{run_id:entry.run_id,status:entry.status,created_at:entry.created_at,reason:entry.reason},runs:[entry]}}));await page.route('**/api/m1/runs/'+run.run_id,route=>route.fulfill({json:run}));
  await page.goto('/?test=1');await expect(page.locator('#load-status')).toContainText('已校验');await page.getByLabel('查看内容',{exact:true}).selectOption('experiment');await expect(page.locator('#run-status')).toContainText('预报已过期 · 历史回看');await expect(page.locator('#run-status')).toContainText(displayTime(run.forecast.published_at));expect((await snapshot(page)).latestRunId).toBeNull();await expect(page.locator('#evaluation-status')).toContainText('24h 已到期 · 尚未核对');
 });
+
+
+test('SYNTHETIC reviewed uninvoked candidate is visibly not executed and never shown as a prediction',async({page},info)=>{
+ const id='m1-20260913T000000000Z-00000000-0000-4000-8000-000000000002',row={run_id:id,created_at:'2026-09-13T00:00:00.000Z',published_at:null,status:'skipped',reason:'candidate_not_invoked'};
+ await page.route('**/api/m1/index',route=>route.fulfill({json:{schema:'MFV:M1_INDEX:v1',checked_at:new Date().toISOString(),latest_run_id:null,latest_attempt:{run_id:id,created_at:row.created_at,status:row.status,reason:row.reason},runs:[row]}}));
+ let requests=0;await page.route('**/api/m1/runs/*',route=>{requests++;return route.abort();});
+ await page.goto('/?test=1');await page.getByLabel('查看内容',{exact:true}).selectOption('experiment');
+ await expect(page.locator('#run-status')).toContainText('未执行');await expect(page.locator('#run-status')).toContainText('正式预测失败，影子候选未调用');
+ await expect(page.locator('#forecast-summary')).toContainText('暂无可显示的已发布预报');expect(requests).toBe(0);
+ await evidence(page,'candidate-not-invoked',info.project.name);
+});
