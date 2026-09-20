@@ -25,7 +25,7 @@
 
 `scripts/export-project-materials.py`生成内容寻址对象及清单，`verify`重新检查清单和全部对象。准备、独立审查、打包、上传和远端下载校验分别留证。业务互斥只覆盖短暂一致性快照，不跨文字检查、OCR、压缩或上传持锁。
 
-使用Python 3运行，输入spec列出来源名称/目录、采集时间、明确排除规则及每个截图SHA绑定的OCR与视觉审查记录。输出目录必须是新目录，且不能位于任何来源目录内。
+使用Python 3运行，输入spec列出来源名称/目录、采集时间、明确排除规则及每个截图SHA绑定的OCR与视觉审查记录。识别出的未知编码二进制保持待检查；与编码相似的普通类型名/路径/哈希串，只有精确token、SHA、来源和原因经过独立核查后，才能加入`literal_token_reviews`。该记录仅跳过编码误判，其他敏感字段和路径仍需净化。输出目录必须是新目录，且不能位于任何来源目录内。
 
 ```sh
 python3 scripts/export-project-materials.py prepare spec.json prepared

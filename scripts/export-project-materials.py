@@ -14,6 +14,7 @@ ANSI = re.compile(r'\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))')
 URL_AUTH = re.compile(r'(?<=://)[^/\s@]+@')
 EMAIL = re.compile(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b')
 HEADER = re.compile(r'(?im)(\b(?:Cookie|Set-Cookie|Authorization|Proxy-Authorization)\s*:\s*)[^\r\n]+')
+BASE64_TOKEN = re.compile(r'(?<![A-Za-z0-9+/_.-])(?:[A-Za-z0-9+/]{4}){10,}(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?(?![A-Za-z0-9+/=_.-])')
 DENIED = re.compile(r'(?:^|/)(?:\.env(?:\.[^/]*)?|auth\.json|credentials(?:\.[^/]*)?|owner\.json|writer\.lock|installation\.local\.json|configuration\.json|config-(?:before|after|active-before|paused|proposal)\.json|installation-proposal\.json|installation-changes|runtime-snapshot/changes|m1-control|\.git)(?:/|$)', re.I)
 
 
@@ -26,33 +27,43 @@ def safe_name(name):
     return str(p)
 
 
-def text_redact(value, depth=0):
+def text_redact(value, depth=0, literal_tokens=frozenset()):
     if depth > 20: raise ValueError('NESTING_LIMIT')
     if isinstance(value, dict):
         result = {}
         for k, v in value.items():
-            clean_key = text_redact(k, depth + 1)
+            clean_key = text_redact(k, depth + 1, literal_tokens)
             if clean_key in result: raise ValueError('REDACTED_KEY_COLLISION')
-            result[clean_key] = '[REDACTED]' if SENSITIVE_KEY.fullmatch(k) else text_redact(v, depth + 1)
+            result[clean_key] = '[REDACTED]' if SENSITIVE_KEY.fullmatch(k) else text_redact(v, depth + 1, literal_tokens)
         return result
-    if isinstance(value, list): return [text_redact(v, depth + 1) for v in value]
+    if isinstance(value, list): return [text_redact(v, depth + 1, literal_tokens) for v in value]
     if not isinstance(value, str): return value
     # Structured JSON embedded in logs remains structured during sanitization.
     if value.lstrip().startswith(('{', '[')):
         try: nested = json.loads(value)
         except ValueError: pass
         else:
-            cleaned = text_redact(nested, depth + 1)
+            cleaned = text_redact(nested, depth + 1, literal_tokens)
             if cleaned != nested: return json.dumps(cleaned, ensure_ascii=False)
-    # Installation journals can embed JSON as base64. Sanitize that content too.
-    if len(value) >= 40 and len(value) % 4 == 0 and re.fullmatch(r'[A-Za-z0-9+/]*={0,2}', value):
-        try:
-            inner = base64.b64decode(value, validate=True).decode('utf-8')
-            obj = json.loads(inner)
-        except (ValueError, UnicodeError): pass
-        else:
-            cleaned = text_redact(obj, depth + 1)
-            if cleaned != obj: return base64.b64encode(encode(cleaned)).decode()
+    # Decode recognizable base64 text even inside a prefixed log. Opaque encoded
+    # binary requires explicit review; hash-like hex identifiers are ordinary data.
+    def clean_encoded(match):
+        token = match[0]
+        if token in literal_tokens: return token
+        if re.fullmatch('[a-fA-F0-9]+',token): return token
+        # Playwright content-addressed references and these documented operation
+        # lists are literal project text, not encoded payloads. Keep this narrow.
+        if re.fullmatch(r'attachments/[a-f0-9]{40}',token): return token
+        if token in ('release/pause/status/index/cycle/forecast/evaluation',
+                     'business/code/Git/queue/release/lock/pause/configuration/service'): return token
+        try: decoded = base64.b64decode(token, validate=True)
+        except ValueError: return token
+        try: inner = decoded.decode('utf-8')
+        except UnicodeError: raise ValueError('ENCODED_BINARY_REQUIRES_REVIEW')
+        if '\x00' in inner: raise ValueError('ENCODED_BINARY_REQUIRES_REVIEW')
+        cleaned = text_redact(inner, depth + 1, literal_tokens)
+        return token if cleaned == inner else base64.b64encode(cleaned.encode()).decode()
+    value = BASE64_TOKEN.sub(clean_encoded,value)
     # Logs can prefix JSON, JSON strings, or multiply escaped JSON strings.
     # Decode complete embedded values rather than trying to regex escaped quotes.
     decoder = json.JSONDecoder(); pieces = []; cursor = 0; at = 0
@@ -60,7 +71,7 @@ def text_redact(value, depth=0):
         if value[at] not in '{["': at += 1; continue
         try: nested, length = decoder.raw_decode(value[at:])
         except ValueError: at += 1; continue
-        cleaned = text_redact(nested, depth + 1)
+        cleaned = text_redact(nested, depth + 1, literal_tokens)
         if cleaned != nested:
             pieces.extend((value[cursor:at], json.dumps(cleaned, ensure_ascii=False)))
             cursor = at + length
@@ -75,7 +86,7 @@ def text_redact(value, depth=0):
     return EMAIL.sub('<REDACTED_EMAIL>', value)
 
 
-def sanitize_text(data):
+def sanitize_text(data, literal_tokens=frozenset()):
     text = data.decode('utf-8')
     if '\x00' in text: raise ValueError('BINARY_CONTENT')
     try: obj = json.loads(text)
@@ -85,12 +96,12 @@ def sanitize_text(data):
         out = []
         for line in lines:
             try: obj = json.loads(line)
-            except ValueError: out.append(text_redact(line))
+            except ValueError: out.append(text_redact(line, literal_tokens=literal_tokens))
             else:
-                cleaned = text_redact(obj)
+                cleaned = text_redact(obj, literal_tokens=literal_tokens)
                 out.append(line if cleaned == obj else json.dumps(cleaned, ensure_ascii=False) + ('\n' if line.endswith('\n') else ''))
         return ''.join(out).encode()
-    cleaned = text_redact(obj)
+    cleaned = text_redact(obj, literal_tokens=literal_tokens)
     return data if cleaned == obj else encode(cleaned)
 
 
@@ -152,6 +163,11 @@ class Exporter:
     def __init__(self, spec, destination):
         self.spec = spec; self.destination = Path(destination).resolve(); self.entries = []; self.names = set()
         self.images = spec.get('image_reviews', {})
+        self.literal_tokens = set()
+        for review in spec.get('literal_token_reviews', []):
+            token = review['token']
+            if review.get('decision') != 'literal_project_identifier' or sha(token.encode()) != review.get('sha256') or not review.get('reason'): raise ValueError('INVALID_LITERAL_REVIEW')
+            self.literal_tokens.add(token)
         self.prune = [(re.compile(r['pattern']),r['reason']) for r in spec.get('prune_directories',[])]
         self.rules = [(re.compile(r['pattern']), r['reason']) for r in spec.get('exclusions', [])]
         if self.destination.exists(): raise ValueError('OUTPUT_EXISTS')
@@ -208,9 +224,9 @@ class Exporter:
                     regular = not stat.S_ISLNK(mode) if zipped else member.isfile()
                     if not regular: self.record(logical, status='blocked', reason='ARCHIVE_LINK_OR_SPECIAL'); continue
                     reason = self.exclusion(logical)
-                    if reason: self.record(logical, status='excluded', reason=reason, original_bytes=member.file_size if zipped else member.size); continue
+                    if reason: self.record(logical, status='excluded', reason=reason, original_bytes=member.file_size if zipped else member.size, container_sha256=original); continue
                     size = member.file_size if zipped else member.size
-                    if size > MAX_FILE: self.record(logical, status='blocked', reason='FILE_LIMIT', original_bytes=size); continue
+                    if size > MAX_FILE: self.record(logical, status='blocked', reason='FILE_LIMIT', original_bytes=size, container_sha256=original); continue
                     raw = archive.read(member) if zipped else archive.extractfile(member).read(MAX_FILE+1)
                     self.content(logical, raw, depth+1, container_sha256=original)
             return
@@ -218,10 +234,10 @@ class Exporter:
             if data.startswith((b'\x89PNG', b'\xff\xd8')):
                 png_check(data) if data.startswith(b'\x89PNG') else jpeg_check(data)
                 review = self.images.get(original)
-                if not review or review.get('decision') != 'safe_project_screenshot' or not review.get('ocr_sha256'):
+                if not review or review.get('decision') != 'safe_project_screenshot' or not re.fullmatch('[a-f0-9]{64}',str(review.get('ocr_sha256',''))):
                     raise ValueError('IMAGE_REVIEW_REQUIRED')
                 exported = data
-            else: exported = sanitize_text(data)
+            else: exported = sanitize_text(data, self.literal_tokens)
         except (ValueError, UnicodeError) as error:
             pending=self.destination/'pending'/original
             if not pending.exists():pending.write_bytes(data)

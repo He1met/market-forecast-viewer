@@ -36,6 +36,23 @@ class Materials(unittest.TestCase):
   self.assertNotIn(b'user:pass',out);self.assertIn(b'ordinary',out)
  def test_sanitized_key_collision_blocks_instead_of_losing_business_content(self):
   with self.assertRaisesRegex(ValueError,'REDACTED_KEY_COLLISION'):m.sanitize_text(json.dumps({'https://a:b@example.test':1,'https://c:d@example.test':2}).encode())
+ def test_literal_identifier_review_is_exact_and_does_not_skip_other_redaction(self):
+  token='ConsumeAccountRateLimitResetCreditParams'
+  with self.assertRaisesRegex(ValueError,'ENCODED_BINARY'):m.sanitize_text(token.encode())
+  self.assertEqual(m.sanitize_text(token.encode(),{token}),token.encode())
+  secret=token+' password=never-public';self.assertNotIn(b'never-public',m.sanitize_text(secret.encode(),{token}))
+  with self.assertRaisesRegex(ValueError,'INVALID_LITERAL_REVIEW'):self.export(literal_token_reviews=[{'token':token,'decision':'literal_project_identifier','sha256':'0'*64,'reason':'synthetic wrong hash'}])
+ def test_prefixed_encoded_credentials_and_unknown_encoded_binary(self):
+  private='SYNTHETIC_PRIVATE_VALUE'
+  payload=base64.b64encode(json.dumps({'password':private,'result':'full result'}).encode()).decode()
+  out=m.sanitize_text(('INFO base64='+payload).encode()).decode().split('=',1)[1]
+  decoded=base64.b64decode(out).decode();self.assertNotIn(private,decoded);self.assertIn('full result',decoded)
+  opaque=base64.b64encode(bytes(range(64))).decode()
+  with self.assertRaisesRegex(ValueError,'ENCODED_BINARY'):m.sanitize_text(('blob='+opaque).encode())
+  original='sha256='+'abcdef0123456789'*4;self.assertEqual(m.sanitize_text(original.encode()),original.encode())
+  path='artifacts/executor/receipts/'+('abcdef0123456789'*4)+'.json';self.assertEqual(m.sanitize_text(path.encode()),path.encode())
+  for literal in ['attachments/'+'a'*40,'release/pause/status/index/cycle/forecast/evaluation','business/code/Git/queue/release/lock/pause/configuration/service']:
+   self.assertEqual(m.sanitize_text(literal.encode()),literal.encode())
  def test_nested_archive_secret_and_private_filename(self):
   with zipfile.ZipFile(self.source/'trace.zip','w') as z:
    z.writestr('run.json','{"password":"never-public","result":"full result"}')
