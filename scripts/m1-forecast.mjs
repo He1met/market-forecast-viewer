@@ -22,7 +22,7 @@ function disabledCodeModeContextV1(context) {
     || x === '-c' && !configs.has(args[i + 1]))) return false;
   return ['code_mode', 'code_mode_host'].every(feature => args.some((x, i) => x === '--disable' && args[i + 1] === feature));
 }
-function disabledCodeModeContext(context) {
+function disabledCodeModeContextV2(context) {
   if (!['codex-cli 0.154.0-alpha.6.2', 'codex-cli 0.155.0-alpha.9'].includes(context?.cli_version)) return false;
   const args = context?.args;
   if (!disabledCodeModeContextV1({...context, cli_version:'codex-cli 0.154.0-alpha.6.2'})) return false;
@@ -36,6 +36,12 @@ function disabledCodeModeContext(context) {
     '--output-schema',value('--output-schema'),'--output-last-message',value('--output-last-message'),'-'];
   return JSON.stringify(args) === JSON.stringify(expected);
 }
+// Only this observed patch version is added; frozen V2 still rejects it.
+function disabledCodeModeContext(context) {
+  return disabledCodeModeContextV2(context?.cli_version === 'codex-cli 0.155.0-alpha.9.2'
+    ? {...context, cli_version:'codex-cli 0.155.0-alpha.9'} : context);
+}
+export function auditCodexEventsV2(stream, context) { return auditEvents(stream, context, disabledCodeModeContextV2); }
 // Replay only the semantics of frozen parser b280c281; do not reinterpret an
 // old failed receipt using the expanded CLI adapter below.
 export function auditCodexEventsV1(stream, context) { return auditEvents(stream, context, disabledCodeModeContextV1); }

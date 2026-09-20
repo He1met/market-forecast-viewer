@@ -8,7 +8,7 @@ import { rawOutputJsonSchema, validateModelOutput } from '../src/m1-contracts.ts
 import { displayRunSchema, indexSchema, publishedForecastSchema, runIdSchema, runtimeDisplaySchema } from '../src/m1-display.ts';
 import { readFrozen, readPublished } from './m1-archive.mjs';
 import { createOutcomeStore } from './m1-outcome-store.mjs';
-import { auditCodexEvents, auditCodexEventsV1 } from './m1-forecast.mjs';
+import { auditCodexEvents, auditCodexEventsV1, auditCodexEventsV2 } from './m1-forecast.mjs';
 import { modelArguments } from './m1-model.mjs';
 import {readLegacyClosure} from './m1-closures.mjs';
 import {readPreparationFailure} from './m1-preparation.mjs';
@@ -206,7 +206,7 @@ export function createDisplayReader({ root = defaultRoot, dataRoot = process.env
       const workspace = invocation.working_directory, originalRun = typeof workspace === 'string' ? dirname(dirname(workspace)) : '';
       check(invocation.schema === 'MFV:MODEL_INVOCATION:v1' && invocation.provider === 'official_codex'
         && invocation.cli_version === receipt.model_config?.cli_version
-        && ['codex-cli 0.154.0-alpha.6.2','codex-cli 0.155.0-alpha.9'].includes(invocation.cli_version)
+        && ['codex-cli 0.154.0-alpha.6.2','codex-cli 0.155.0-alpha.9','codex-cli 0.155.0-alpha.9.2'].includes(invocation.cli_version)
         && invocation.requested_model === 'gpt-6-astra' && invocation.requested_reasoning === 'medium'
         && invocation.frozen_input_sha256 === frozen.manifest.files['input.json']
         && typeof workspace === 'string' && isAbsolute(workspace) && originalRun.split(sep).at(-1) === id
@@ -215,7 +215,8 @@ export function createDisplayReader({ root = defaultRoot, dataRoot = process.env
       const context = {kind:'installed_frozen_input',cli_version:invocation.cli_version,args:invocation.args};
       const parser = frozen.provenance.code_sha256?.['scripts/m1-forecast.mjs'];
       const historicalParser = parser === 'b280c281ad131160aacf1fc20b0bd893ccc73e2e13e9d794f1a444f0c64212da';
-      const audit = historicalParser ? auditCodexEventsV1(stream, context) : auditCodexEvents(stream, context);
+      const frozenV2 = parser === 'd2a1282e03ad0b848aa0206a430ad1065c4dc87eaceadea9f3b30564039b5f26';
+      const audit = historicalParser ? auditCodexEventsV1(stream, context) : frozenV2 ? auditCodexEventsV2(stream, context) : auditCodexEvents(stream, context);
       check(audit.events.some(event => event?.type === 'thread.started' && event.thread_id === receipt.model_thread_id), 'SCORING_THREAD_MISMATCH');
       if (parser === '9016c56108a71f3daacbaef25db705ab306a06ac4600889712ab892a680d7a4d' && receipt.event_audit === undefined) {
         check(invocation.cli_version === 'codex-cli 0.154.0-alpha.6.2', 'SCORING_INVOCATION_MISMATCH');
@@ -229,7 +230,7 @@ export function createDisplayReader({ root = defaultRoot, dataRoot = process.env
           && receipt.model_config.startup_warning_count === legacy.startup_warning_count
           && receipt.turn_completed === null && receipt.cli_exit_code === 0 && receipt.timed_out === false, 'SCORING_FAILURE_UNPROVEN');
       } else {
-        check(historicalParser || parser === 'd2a1282e03ad0b848aa0206a430ad1065c4dc87eaceadea9f3b30564039b5f26', 'SCORING_PARSER_UNSUPPORTED');
+        check(historicalParser || frozenV2 || parser === '94eae228c45e420e00eb4d1207dce4d4e1652fb3ffe1b7b5a560fa6e71d66df8', 'SCORING_PARSER_UNSUPPORTED');
         const expected = {schema:'MFV:CODEX_EVENT_AUDIT:v1',events_sha256:digest(stream),invocation_sha256:digest(invocationBytes),
           cli_version:invocation.cli_version,controlled_disabled_context:audit.controlled_disabled_context,startup_notice_count:audit.startup_notice_count,
           startup_notices:audit.startup_notices,unexpected_event_count:audit.unexpected_count,unexpected_tool_count:audit.unexpected_tool_count,

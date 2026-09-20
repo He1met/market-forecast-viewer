@@ -4,13 +4,13 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import os from 'node:os';
 import { createHash } from 'node:crypto';
-import { auditCodexEvents, auditCodexEventsV1, generateForecast } from '../scripts/m1-forecast.mjs';
+import { auditCodexEvents, auditCodexEventsV1, auditCodexEventsV2, generateForecast } from '../scripts/m1-forecast.mjs';
 import { newRun, freezeInput, readPublished } from '../scripts/m1-archive.mjs';
 import { rawOutputJsonSchema } from '../src/m1-contracts.ts';
 import {modelArguments} from '../scripts/m1-model.mjs';
 
 const stream = events => events.map(value => JSON.stringify(value)).join('\n');
-for(const cli_version of ['codex-cli 0.154.0-alpha.6.2','codex-cli 0.155.0-alpha.9']) test(`disabled Code Mode notice needs exact invocation for ${cli_version}`, () => {
+for(const cli_version of ['codex-cli 0.154.0-alpha.6.2','codex-cli 0.155.0-alpha.9','codex-cli 0.155.0-alpha.9.2']) test(`disabled Code Mode notice needs exact invocation for ${cli_version}`, () => {
   const notice={type:'item.completed',item:{type:'error',message:'Code Mode is unavailable because code-mode host is disabled. Code mode will fail closed; enable `features.code_mode_host` and install `codex-code-mode-host`.'}};
   const args=modelArguments({workspace:'/fixture',schema:'/fixture/schema',output:'/fixture/output'});
   const context={kind:'installed_frozen_input',cli_version,args};
@@ -20,9 +20,12 @@ for(const cli_version of ['codex-cli 0.154.0-alpha.6.2','codex-cli 0.155.0-alpha
   assert.equal(accepted.unexpected_count,0);assert.equal(accepted.unexpected_tool_count,0);assert.equal(accepted.failed,false);
   assert.equal(accepted.startup_notices[0].cli_version,context.cli_version);
   const old=auditCodexEventsV1(stream(events),context);
-  assert.equal(old.unexpected_count,cli_version==='codex-cli 0.155.0-alpha.9'?1:0);
+  assert.equal(old.unexpected_count,cli_version==='codex-cli 0.154.0-alpha.6.2'?0:1);
   assert.equal(old.controlled_disabled_context,cli_version==='codex-cli 0.154.0-alpha.6.2');
-  for(const bad of [undefined,{}, {...context,kind:'legacy'}, {...context,cli_version:'codex-cli 0.155.0-alpha.10'}, {...context,args:[...args,'--unknown']}, {...context,args:args.map(x=>x==='gpt-6-astra'?'other':x)}, {...context,cli_version:'codex-cli 0.154.1'},
+  const v2=auditCodexEventsV2(stream(events),context);
+  assert.equal(v2.unexpected_count,cli_version==='codex-cli 0.155.0-alpha.9.2'?1:0);
+  assert.equal(v2.controlled_disabled_context,cli_version!=='codex-cli 0.155.0-alpha.9.2');
+  for(const bad of [undefined,{}, {...context,args:[args[0],args[1],args[3],args[2],...args.slice(4)]}, {...context,args:[...args.slice(0,-1),'--disable','code_mode','-']}, {...context,kind:'legacy'}, ...['codex-cli 0.155.0-alpha.10','codex-cli 0.155.0-alpha.9.1','codex-cli 0.155.0-alpha.9.3','codex-cli 0.155.0-alpha.9.20'].map(cli_version=>({...context,cli_version})), {...context,args:[...args,'--unknown']}, {...context,args:args.map(x=>x==='gpt-6-astra'?'other':x)}, {...context,cli_version:'codex-cli 0.154.1'},
     {...context,args:args.filter(x=>x!=='code_mode')}, {...context,args:args.filter(x=>x!=='code_mode_host')},
     {...context,args:args.filter(x=>x!=='--ignore-user-config')}, {...context,args:[...args,'--enable','code_mode_host']},
     {...context,args:[...args,'--enable=code_mode']}, {...context,args:[...args,'-c','features.code_mode=true']},

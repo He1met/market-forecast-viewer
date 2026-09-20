@@ -138,7 +138,8 @@ test('ops repaired archive clears persisted failure through real validation and 
  }};
  assert.equal((await ops(options)).status,'partial');
  await fs.rm(dir,{recursive:true});await fs.cp(path.resolve('artifacts/forecast-runs',id),dir,{recursive:true});
- await fs.cp(path.resolve('artifacts/data-source'),path.join(root,'data-source'),{recursive:true});
+ // Copy the frozen fixture only; sibling tests create/remove their own sources.
+ await fs.cp(path.resolve('artifacts/data-source/SYNTHETIC'),path.join(root,'data-source/SYNTHETIC'),{recursive:true});
  const fixed=await ops(options);assert.equal(fixed.status,'completed');assert.deepEqual(fixed.unresolved,[]);
  assert.equal((await ops(options)).reason,'slot_completed');await free(root,port);
 });
