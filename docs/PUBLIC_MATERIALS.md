@@ -1,5 +1,7 @@
 # 项目材料与下载索引
 
+首次归档保留在下方。其后的自然预测与研究增量见[2026-09-21 05:53增量材料](MATERIALS_INCREMENT_20260921.md)，该页独立标明范围、截止和附件是否已实际交付，不覆盖首次六附件。
+
 用户已[明确授权](https://github.com/He1met/market-forecast-viewer/issues/15#issuecomment-5751861127)将项目原始行情、模型完整输出、截图、日志和备份发布到本仓库。[Issue #40](https://github.com/He1met/market-forecast-viewer/issues/40)跟踪实际附件交付与独立检查。
 
 六个附件已于2026-09-21 05:08（上海时间）完成上传、全部下载及逐件SHA256/大小核对，总计1,087,127,379字节。[本次Release](https://github.com/He1met/market-forecast-viewer/releases/tag/materials-20260921-041032)已公开；附件交付与源码PR合并分别核验。核心、审计补充和导出源码均有独立审查，详见下方依据。
