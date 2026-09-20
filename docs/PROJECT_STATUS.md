@@ -1,5 +1,9 @@
 # 项目状态快照
 
+**最新自然事实截至2026-09-21 05:53（上海时间）**：f5包于05:52:48完成首期自然valid发布，当前自然预测验收1/2；05:19巡检后完整成熟配对1/20、仍waiting。此前04:18自然巡检单项通过继续有效，备份/恢复、通知、页面体验和方法效果仍待各自证据。新状态与原始资料范围见[本次增量](MATERIALS_INCREMENT_20260921.md)；其附件交付状态单独标明。以下保留较早采集层次，不把不同时间混为一份实时快照。
+
+本批两附件已于06:22完成真实下载核验并公开。另有**附件截止外的06:18增量**：新自然巡检确认最新时段present，发布健康状态为current，历史missing仍保留；仍是同一首期预报，计数保持1/2和1/20。[独立时间记录](https://github.com/He1met/market-forecast-viewer/issues/15#issuecomment-5753095880)，原材料进入后续批，不追改本批附件。
+
 部署采集于2026-09-21 03:29，调度修正核实于03:54，自然巡检截至04:18，备份身份修正截至04:31（上海时间）；此页是有时间标记的快照，不是实时监控。
 
 | 项目 | 已核实状态 |
@@ -11,6 +15,8 @@
 | 本次修复 | CLI兼容、完整备份性能、未调用候选的准确展示 |
 | 完整恢复验证 | 切换前10802文件、追加判定记录后10813文件逐字校验通过 |
 | 当前资料交付 | Issue #40：六个实际附件已于05:08全部下载校验通过并公开，共1,087,127,379字节；源码与文档的审查/合并记录见[PR #41](https://github.com/He1met/market-forecast-viewer/pull/41) |
+
+PR #41已合并为资料代码基线`3925f6e7da5fc184d153524298c26e0d4f979fc1`，Issue #40首次交付已独立验收关闭；当前新增[Issue #42](https://github.com/He1met/market-forecast-viewer/issues/42)只同步下一批材料与状态。资料代码和正式安装包版本不同，不代表需要再次切换业务包。
 
 依据：[PR #37](https://github.com/He1met/market-forecast-viewer/pull/37)、[正式部署报告](https://github.com/He1met/market-forecast-viewer/issues/39#issuecomment-5752101950)、[独立复核与原调度恢复](https://github.com/He1met/market-forecast-viewer/issues/39#issuecomment-5752109550)。
 
@@ -41,7 +47,7 @@
 | [#40](https://github.com/He1met/market-forecast-viewer/issues/40) | 05:08附件交付完成；源码与文档最终交付以PR #41审查和合并记录为准，后续实质变化增量同步 | 实施侧交付，监督侧独立核验 |
 | [#10](https://github.com/He1met/market-forecast-viewer/issues/10)、[#15](https://github.com/He1met/market-forecast-viewer/issues/15) | 汇总页面、自然运行、通知和反馈比较各项验收 | 监督侧管理；用户负责页面体验和通知确认 |
 
-- 新包后续自然预测是否恢复成功；自然巡检已单项通过，不能代替预测恢复。
+- 新包第二个不同自然时段的及时有效发布；截至05:53已有首期成功（1/2），不能把历史包成功计入本包。
 - 自然备份、自然恢复、通知可见性，以及当前页面的用户操作验收。
 - F0/F1方法效果：原20个完整成熟配对、最多30个已结束机会的规则不变。登记、实际调用、完整成熟配对和最终决定分开统计，未调用不计成功配对。
 - 首次资料附件交付及远端校验已完成，见[材料索引](PUBLIC_MATERIALS.md)；后续新增运行证据按实质变化增量同步。
