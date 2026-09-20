@@ -20,6 +20,10 @@ PR #37 的原 head 两次远端完整备份门禁均在第二遍校验超出原 
 
 Issue #38 首个优化提交的 Linux CI 仍在 verify/4528 文件时超时，原失败保留，未重复重试。新增纯诊断记录身份守卫、批内声明查询和安全读取／哈希的 wall 耗时及分阶段明细，计量开销计入原 15 秒；不把并发操作累计耗时当作总 wall 时间。后续依据真实 Linux 诊断再决定等价优化，当前不能宣称性能门禁已解决。
 
+Linux 原环境诊断进一步证明约 15.014 秒中，身份守卫累计 9.975 秒、声明查询 0.533 秒、安全读取／哈希 4.414 秒，主瓶颈是每批创建 ps 子进程。经监督技术放行，仅 Linux 当前互斥进程改为每次重新读 `/proc/<pid>/stat` 与 `exe` 的路径／设备／inode，核 PID、精确 start ticks、pgrp、comm 和执行映像；同时仍读 owner 的 token／pid／原 ps identity 并确认监听。PID/start ticks 本身不能识别同 PID exec，不作这种声称；映像路径与 inode 变化也会拒绝。初始 ps 身份须有效，proc 基线前后 ps 一致；只在初始能力确实不可用时固定回落 ps，畸形不降级，启用后任何读取失败或身份变化均拒绝。macOS、跨进程、子进程及孤儿恢复原 ps 路径保持。
+
+相关字段依据 [Linux 内核 proc 文档](https://docs.kernel.org/filesystems/proc.html) 与 [proc_pid_stat 手册](https://www.man7.org/linux/man-pages/man5/proc_pid_stat.5.html)。这仍待最终精确 CI／审查，不能以本机测试代替 Linux 性能结论。首次新增测试叠加 mock 导致后续文件读取未恢复，已改为单 mock 切换输入；失败和超时日志保留。
+
 ## Issue #36：CLI 精确补丁版本兼容
 
 当前包在 CLI `0.155.0-alpha.9.2` 的两次真实尝试均完成，但冻结适配器将唯一已禁用 Code Mode 的启动提示判为未知事件，整轮保持失败且没有发布。本次只增加该精确版本，仍核完整参数及顺序、唯一提示和 pre-turn 位置，拒绝未知版本、工具与额外异常。冻结 `d2a1282` 由独立 V2 入口按原语义回放，保留更早 V1；旧失败只能严格识别为不可评分，不能补发布或改判成功。
