@@ -1,5 +1,7 @@
 # 项目材料与下载索引
 
+已公开的[07:53增量](MATERIALS_INCREMENT_20260921_0753.md)覆盖第二期自然预测及06:18起的两次巡检；两附件共4,905,777字节，已独立审查、完整下载核验及匿名访问验证。此前八个附件保持原字节。
+
 首次归档保留在下方。其后的自然预测与研究增量见已公开的[2026-09-21 05:53增量材料](MATERIALS_INCREMENT_20260921.md)：两附件11,040,261字节，已完整下载核对并验证公开访问。该页独立标明范围和截止，不覆盖首次六附件。
 
 用户已[明确授权](https://github.com/He1met/market-forecast-viewer/issues/15#issuecomment-5751861127)将项目原始行情、模型完整输出、截图、日志和备份发布到本仓库。[Issue #40](https://github.com/He1met/market-forecast-viewer/issues/40)跟踪实际附件交付与独立检查。
